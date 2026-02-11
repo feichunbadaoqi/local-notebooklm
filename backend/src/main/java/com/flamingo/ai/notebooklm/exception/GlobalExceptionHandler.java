@@ -58,6 +58,25 @@ public class GlobalExceptionHandler {
                 .build());
   }
 
+  @ExceptionHandler(MemoryNotFoundException.class)
+  public ResponseEntity<ApiError> handleMemoryNotFound(
+      MemoryNotFoundException ex, HttpServletRequest request) {
+
+    incrementErrorCounter("memory_not_found");
+    String errorId = generateErrorId();
+    log.warn("Memory not found [{}]: {}", errorId, ex.getMemoryId());
+
+    return ResponseEntity.status(HttpStatus.NOT_FOUND)
+        .body(
+            ApiError.builder()
+                .errorId(errorId)
+                .code(ApiError.MEMORY_NOT_FOUND)
+                .message("Memory not found")
+                .path(request.getRequestURI())
+                .timestamp(Instant.now())
+                .build());
+  }
+
   @ExceptionHandler(DocumentProcessingException.class)
   public ResponseEntity<ApiError> handleDocumentProcessing(
       DocumentProcessingException ex, HttpServletRequest request) {

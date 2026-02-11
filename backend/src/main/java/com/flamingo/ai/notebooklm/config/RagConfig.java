@@ -15,6 +15,7 @@ public class RagConfig {
   private Chunking chunking = new Chunking();
   private Retrieval retrieval = new Retrieval();
   private Compaction compaction = new Compaction();
+  private Memory memory = new Memory();
 
   @Getter
   @Setter
@@ -37,5 +38,14 @@ public class RagConfig {
     private int tokenThreshold = 3000;
     private int messageThreshold = 30;
     private int batchSize = 20;
+  }
+
+  @Getter
+  @Setter
+  public static class Memory {
+    private boolean enabled = true;
+    private int maxPerSession = 50;
+    private float extractionThreshold = 0.3f;
+    private int contextLimit = 5;
   }
 }

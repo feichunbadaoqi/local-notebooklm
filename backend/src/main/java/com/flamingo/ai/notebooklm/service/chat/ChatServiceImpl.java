@@ -4,12 +4,14 @@ import com.flamingo.ai.notebooklm.api.dto.response.StreamChunkResponse;
 import com.flamingo.ai.notebooklm.config.RagConfig;
 import com.flamingo.ai.notebooklm.domain.entity.ChatMessage;
 import com.flamingo.ai.notebooklm.domain.entity.ChatSummary;
+import com.flamingo.ai.notebooklm.domain.entity.Memory;
 import com.flamingo.ai.notebooklm.domain.entity.Session;
 import com.flamingo.ai.notebooklm.domain.enums.InteractionMode;
 import com.flamingo.ai.notebooklm.domain.enums.MessageRole;
 import com.flamingo.ai.notebooklm.domain.repository.ChatMessageRepository;
 import com.flamingo.ai.notebooklm.domain.repository.ChatSummaryRepository;
 import com.flamingo.ai.notebooklm.elasticsearch.DocumentChunk;
+import com.flamingo.ai.notebooklm.service.memory.MemoryService;
 import com.flamingo.ai.notebooklm.service.rag.HybridSearchService;
 import com.flamingo.ai.notebooklm.service.session.SessionService;
 import dev.langchain4j.data.message.AiMessage;
@@ -46,6 +48,7 @@ public class ChatServiceImpl implements ChatService {
   private final ChatSummaryRepository chatSummaryRepository;
   private final StreamingChatModel streamingChatModel;
   private final ChatCompactionService compactionService;
+  private final MemoryService memoryService;
   private final RagConfig ragConfig;
   private final MeterRegistry meterRegistry;
 
@@ -108,6 +111,9 @@ public class ChatServiceImpl implements ChatService {
             meterRegistry.counter("chat.messages.generated").increment();
             meterRegistry.counter("chat.tokens.generated").increment(tokenCount.get());
 
+            // Extract memories asynchronously (non-blocking)
+            memoryService.extractAndSaveAsync(sessionId, userMessage, fullResponse, mode);
+
             // Check if compaction is needed
             compactionService.checkAndCompactIfNeeded(sessionId);
 
@@ -166,6 +172,15 @@ public class ChatServiceImpl implements ChatService {
     // System prompt based on mode
     String systemPrompt = buildSystemPrompt(mode, ragContext);
     messages.add(SystemMessage.from(systemPrompt));
+
+    // Add relevant memories
+    int memoryLimit = ragConfig.getMemory().getContextLimit();
+    List<Memory> memories =
+        memoryService.getRelevantMemories(session.getId(), currentMessage, memoryLimit);
+    if (!memories.isEmpty()) {
+      String memoryContext = memoryService.buildMemoryContext(memories);
+      messages.add(SystemMessage.from(memoryContext));
+    }
 
     // Add chat summary if available
     List<ChatSummary> summaries =

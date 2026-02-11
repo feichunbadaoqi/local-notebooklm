@@ -69,6 +69,11 @@ rag:
     token-threshold: 3000
     message-threshold: 30
     batch-size: 20
+  memory:
+    enabled: true
+    max-per-session: 50        # Max memories per session
+    extraction-threshold: 0.3  # Min importance to save
+    context-limit: 5           # Max memories in context
 
 # ============ Interaction Modes ============
 modes:
