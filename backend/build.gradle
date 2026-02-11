@@ -29,15 +29,16 @@ repositories {
 }
 
 ext {
-    langchain4jVersion = '1.0.0-beta1'
-    tikaVersion = '3.0.0'
+    langchain4jVersion = '1.11.0'
+    tikaVersion = '3.2.3'
     resilience4jVersion = '2.2.0'
-    testcontainersVersion = '1.19.8'
+    testcontainersVersion = '1.20.4'
 }
 
 dependencies {
     // ============ Spring Boot Starters ============
     implementation 'org.springframework.boot:spring-boot-starter-web'
+    implementation 'org.springframework.boot:spring-boot-starter-webflux'
     implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
     implementation 'org.springframework.boot:spring-boot-starter-validation'
     implementation 'org.springframework.boot:spring-boot-starter-actuator'
@@ -54,7 +55,6 @@ dependencies {
     // ============ LangChain4j ============
     implementation "dev.langchain4j:langchain4j:${langchain4jVersion}"
     implementation "dev.langchain4j:langchain4j-open-ai:${langchain4jVersion}"
-    implementation "dev.langchain4j:langchain4j-embeddings-all-minilm-l6-v2:${langchain4jVersion}"
 
     // ============ Document Processing (Apache Tika) ============
     implementation "org.apache.tika:tika-core:${tikaVersion}"

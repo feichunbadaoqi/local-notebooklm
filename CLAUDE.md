@@ -188,6 +188,28 @@ All metrics exported via Micrometer to `/actuator/prometheus`:
 - **Style Check**: Checkstyle
 - **All checks must pass before committing**
 
+## Dependency Management
+
+**IMPORTANT: Always use the latest stable versions of dependencies.**
+
+### Before Adding/Updating Dependencies:
+1. Check [Maven Central](https://central.sonatype.com/) or [MVN Repository](https://mvnrepository.com/) for the latest stable version
+2. Avoid beta/alpha/RC versions unless specifically required
+3. Update the version in `build.gradle` ext block for easy version management
+
+### Current Key Dependencies (keep updated):
+| Dependency | Version | Check Latest |
+|------------|---------|--------------|
+| LangChain4j | 1.11.0 | [Maven Central](https://central.sonatype.com/artifact/dev.langchain4j/langchain4j) |
+| Apache Tika | 3.2.3 | [Maven Central](https://central.sonatype.com/artifact/org.apache.tika/tika-core) |
+| Testcontainers | 1.20.4 | [Maven Central](https://central.sonatype.com/artifact/org.testcontainers/testcontainers) |
+| Elasticsearch Client | 8.12.2 | [Maven Central](https://central.sonatype.com/artifact/co.elastic.clients/elasticsearch-java) |
+
+### When to Update:
+- Before starting new features that depend on library functionality
+- When encountering bugs that may be fixed in newer versions
+- During periodic maintenance reviews
+
 ## Development Workflow
 
 1. Make code changes

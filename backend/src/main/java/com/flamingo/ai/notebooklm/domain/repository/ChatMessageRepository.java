@@ -2,6 +2,7 @@ package com.flamingo.ai.notebooklm.domain.repository;
 
 import com.flamingo.ai.notebooklm.domain.entity.ChatMessage;
 import com.flamingo.ai.notebooklm.domain.enums.MessageRole;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.data.domain.Pageable;
@@ -14,8 +15,11 @@ import org.springframework.stereotype.Repository;
 @Repository
 public interface ChatMessageRepository extends JpaRepository<ChatMessage, UUID> {
 
-  /** Finds all messages for a session ordered by creation time. */
+  /** Finds all messages for a session ordered by creation time ascending. */
   List<ChatMessage> findBySessionIdOrderByCreatedAtAsc(UUID sessionId);
+
+  /** Finds all messages for a session ordered by creation time descending. */
+  List<ChatMessage> findBySessionIdOrderByCreatedAtDesc(UUID sessionId);
 
   /** Finds recent messages for a session (for sliding window). */
   @Query(
@@ -28,11 +32,36 @@ public interface ChatMessageRepository extends JpaRepository<ChatMessage, UUID> 
           + "AND m.isCompacted = false ORDER BY m.createdAt ASC")
   List<ChatMessage> findUncompactedBySessionId(@Param("sessionId") UUID sessionId);
 
+  /** Alias for findUncompactedBySessionId. */
+  @Query(
+      "SELECT m FROM ChatMessage m WHERE m.session.id = :sessionId "
+          + "AND m.isCompacted = false ORDER BY m.createdAt ASC")
+  List<ChatMessage> findNonCompactedMessagesBySessionId(@Param("sessionId") UUID sessionId);
+
+  /** Finds recent non-compacted messages up to a limit. */
+  @Query(
+      "SELECT m FROM ChatMessage m WHERE m.session.id = :sessionId "
+          + "AND m.isCompacted = false ORDER BY m.createdAt DESC")
+  List<ChatMessage> findRecentNonCompactedMessagesQuery(
+      @Param("sessionId") UUID sessionId, Pageable pageable);
+
+  /** Finds recent non-compacted messages with a limit. */
+  default List<ChatMessage> findRecentNonCompactedMessages(UUID sessionId, int limit) {
+    return findRecentNonCompactedMessagesQuery(sessionId, Pageable.ofSize(limit));
+  }
+
   /** Counts uncompacted messages for a session. */
   @Query(
       "SELECT COUNT(m) FROM ChatMessage m WHERE m.session.id = :sessionId "
           + "AND m.isCompacted = false")
   long countUncompactedBySessionId(@Param("sessionId") UUID sessionId);
+
+  /** Counts messages created before a given timestamp. */
+  @Query(
+      "SELECT COUNT(m) FROM ChatMessage m WHERE m.session.id = :sessionId "
+          + "AND m.createdAt < :timestamp")
+  int countMessagesBeforeTimestamp(
+      @Param("sessionId") UUID sessionId, @Param("timestamp") LocalDateTime timestamp);
 
   /** Sums token count for uncompacted messages in a session. */
   @Query(

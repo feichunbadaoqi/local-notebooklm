@@ -6,7 +6,9 @@
       "Bash(./gradlew spotlessApply:*)",
       "Bash(./gradlew build:*)",
       "Bash(./gradlew compileJava:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "WebFetch(domain:central.sonatype.com)"
     ]
   }
 }

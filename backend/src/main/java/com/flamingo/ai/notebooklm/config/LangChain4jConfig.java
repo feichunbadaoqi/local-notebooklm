@@ -1,9 +1,11 @@
 package com.flamingo.ai.notebooklm.config;
 
-import dev.langchain4j.model.chat.ChatLanguageModel;
+import dev.langchain4j.model.chat.ChatModel;
+import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.embedding.EmbeddingModel;
 import dev.langchain4j.model.openai.OpenAiChatModel;
 import dev.langchain4j.model.openai.OpenAiEmbeddingModel;
+import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
 import java.time.Duration;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -32,11 +34,8 @@ public class LangChain4jConfig {
   private int embeddingDimensions;
 
   @Bean
-  public ChatLanguageModel chatLanguageModel() {
-    if (openAiApiKey == null || openAiApiKey.isBlank()) {
-      throw new IllegalStateException(
-          "OpenAI API key is required. Set OPENAI_API_KEY environment variable.");
-    }
+  public ChatModel chatModel() {
+    validateApiKey();
 
     return OpenAiChatModel.builder()
         .apiKey(openAiApiKey)
@@ -50,11 +49,23 @@ public class LangChain4jConfig {
   }
 
   @Bean
+  public StreamingChatModel streamingChatModel() {
+    validateApiKey();
+
+    return OpenAiStreamingChatModel.builder()
+        .apiKey(openAiApiKey)
+        .modelName(chatModelName)
+        .temperature(temperature)
+        .maxTokens(maxTokens)
+        .timeout(Duration.ofSeconds(120))
+        .logRequests(false)
+        .logResponses(false)
+        .build();
+  }
+
+  @Bean
   public EmbeddingModel embeddingModel() {
-    if (openAiApiKey == null || openAiApiKey.isBlank()) {
-      throw new IllegalStateException(
-          "OpenAI API key is required. Set OPENAI_API_KEY environment variable.");
-    }
+    validateApiKey();
 
     return OpenAiEmbeddingModel.builder()
         .apiKey(openAiApiKey)
@@ -62,5 +73,12 @@ public class LangChain4jConfig {
         .dimensions(embeddingDimensions)
         .timeout(Duration.ofSeconds(30))
         .build();
+  }
+
+  private void validateApiKey() {
+    if (openAiApiKey == null || openAiApiKey.isBlank()) {
+      throw new IllegalStateException(
+          "OpenAI API key is required. Set OPENAI_API_KEY environment variable.");
+    }
   }
 }
