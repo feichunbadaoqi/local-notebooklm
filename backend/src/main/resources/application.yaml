@@ -1,3 +1,168 @@
 spring:
   application:
     name: notebooklm
+
+  # ============ SQLite Database ============
+  datasource:
+    url: jdbc:sqlite:data/notebooklm.db
+    driver-class-name: org.sqlite.JDBC
+    hikari:
+      maximum-pool-size: 1  # SQLite only supports single connection
+      connection-timeout: 30000
+
+  jpa:
+    database-platform: org.hibernate.community.dialect.SQLiteDialect
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: true
+
+  # ============ File Upload ============
+  servlet:
+    multipart:
+      max-file-size: 50MB
+      max-request-size: 50MB
+
+  # ============ Docker Compose ============
+  docker:
+    compose:
+      lifecycle-management: start_only
+      file: compose.yaml
+
+# ============ Server Configuration ============
+server:
+  port: 8080
+
+# ============ Elasticsearch ============
+elasticsearch:
+  host: localhost
+  port: 9200
+  scheme: http
+  index:
+    chunks: document_chunks
+
+# ============ LangChain4j / OpenAI ============
+langchain4j:
+  openai:
+    api-key: ${OPENAI_API_KEY:}
+    chat-model:
+      model-name: gpt-4o-mini
+      temperature: 0.7
+      max-tokens: 2048
+      timeout: 60s
+    embedding-model:
+      model-name: text-embedding-3-small
+      dimensions: 1536
+
+# ============ RAG Configuration ============
+rag:
+  chunking:
+    size: 512
+    overlap: 50
+  retrieval:
+    top-k: 6
+    rrf-k: 60  # Reciprocal Rank Fusion constant
+  compaction:
+    sliding-window-size: 10
+    token-threshold: 3000
+    message-threshold: 30
+    batch-size: 20
+
+# ============ Interaction Modes ============
+modes:
+  exploring:
+    retrieval-count: 8
+    description: "Broad discovery, tangential suggestions"
+  research:
+    retrieval-count: 4
+    description: "Precise citations, fact-focused"
+  learning:
+    retrieval-count: 6
+    description: "Socratic method, builds understanding"
+
+# ============ Resilience4j ============
+resilience4j:
+  circuitbreaker:
+    configs:
+      default:
+        register-health-indicator: true
+        sliding-window-type: COUNT_BASED
+        sliding-window-size: 10
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 30s
+        permitted-number-of-calls-in-half-open-state: 3
+        automatic-transition-from-open-to-half-open-enabled: true
+    instances:
+      openai:
+        base-config: default
+        failure-rate-threshold: 30
+        wait-duration-in-open-state: 60s
+      elasticsearch:
+        base-config: default
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 10s
+
+  retry:
+    configs:
+      default:
+        max-attempts: 3
+        wait-duration: 1s
+        enable-exponential-backoff: true
+        exponential-backoff-multiplier: 2
+    instances:
+      openai:
+        base-config: default
+        max-attempts: 3
+        wait-duration: 2s
+        retry-exceptions:
+          - java.net.SocketTimeoutException
+          - java.io.IOException
+      elasticsearch:
+        base-config: default
+        max-attempts: 3
+        wait-duration: 500ms
+
+  timelimiter:
+    configs:
+      default:
+        timeout-duration: 30s
+    instances:
+      openai:
+        timeout-duration: 60s
+      elasticsearch:
+        timeout-duration: 10s
+
+# ============ Actuator & Metrics ============
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus,circuitbreakers,retries
+  endpoint:
+    health:
+      show-details: always
+      show-components: always
+  metrics:
+    tags:
+      application: ${spring.application.name}
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+      percentiles:
+        http.server.requests: 0.5, 0.90, 0.95, 0.99
+    export:
+      prometheus:
+        enabled: true
+
+# ============ Logging ============
+logging:
+  level:
+    root: INFO
+    com.flamingo.ai.notebooklm: DEBUG
+    org.hibernate.SQL: WARN
+    org.springframework.web: INFO
+    io.github.resilience4j: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"

@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<FindBugsFilter>
+    <!--
+        Suppress EI_EXPOSE_REP and EI_EXPOSE_REP2 for the entire project.
+        These warnings are false positives for:
+        - JPA entities (need mutable fields for ORM)
+        - Spring beans (DI by design stores external references)
+        - Config classes (Spring Configuration pattern)
+    -->
+    <Match>
+        <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
+    </Match>
+
+    <!-- Exclude DTO classes (data transfer objects with getters/setters) -->
+    <Match>
+        <Package name="~com\.flamingo\.ai\.notebooklm\.api\.dto\..*"/>
+    </Match>
+
+    <!-- Exclude configuration classes -->
+    <Match>
+        <Package name="~com\.flamingo\.ai\.notebooklm\.config\..*"/>
+    </Match>
+
+    <!-- Exclude enum classes -->
+    <Match>
+        <Package name="~com\.flamingo\.ai\.notebooklm\.domain\.enums\..*"/>
+    </Match>
+
+    <!-- Exclude Spring Boot application class -->
+    <Match>
+        <Class name="~.*Application"/>
+    </Match>
+
+    <!-- Exclude test classes -->
+    <Match>
+        <Source name="~.*Test\.java"/>
+    </Match>
+    <Match>
+        <Source name="~.*Tests\.java"/>
+    </Match>
+    <Match>
+        <Source name="~.*IT\.java"/>
+    </Match>
+
+    <!-- Ignore unread fields in entities (JPA managed) -->
+    <Match>
+        <Package name="~com\.flamingo\.ai\.notebooklm\.domain\.entity\..*"/>
+        <Bug pattern="URF_UNREAD_FIELD,UWF_UNWRITTEN_FIELD"/>
+    </Match>
+
+    <!-- Ignore serialization issues for DTOs -->
+    <Match>
+        <Package name="~com\.flamingo\.ai\.notebooklm\.api\.dto\..*"/>
+        <Bug pattern="SE_BAD_FIELD,SE_NO_SERIALVERSIONID"/>
+    </Match>
+
+    <!--
+        Suppress common style warnings that are not critical:
+        - ICAST_INTEGER_MULTIPLY_CAST_TO_LONG: integer * integer cast to long is fine in our context
+        - REC_CATCH_EXCEPTION: Catching Exception is acceptable in async methods
+        - VA_FORMAT_STRING_USES_NEWLINE: \n is fine for cross-platform context building
+    -->
+    <Match>
+        <Bug pattern="ICAST_INTEGER_MULTIPLY_CAST_TO_LONG,REC_CATCH_EXCEPTION,VA_FORMAT_STRING_USES_NEWLINE"/>
+    </Match>
+</FindBugsFilter>
