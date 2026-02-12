@@ -170,9 +170,22 @@ public class DocumentProcessingService {
       }
 
       // Index only valid chunks in Elasticsearch
-      log.debug("Indexing {} valid chunks to Elasticsearch...", validChunks.size());
+      log.info("========== INDEXING DOCUMENT {} ==========", documentId);
+      log.info("Session ID: {}", document.getSession().getId());
+      log.info("Document file name: {}", document.getFileName());
+      log.info("Number of valid chunks to index: {}", validChunks.size());
+      for (int i = 0; i < Math.min(3, validChunks.size()); i++) {
+        DocumentChunk chunk = validChunks.get(i);
+        log.info(
+            "Sample chunk {}: id={}, sessionId={}, contentPreview={}",
+            i,
+            chunk.getId(),
+            chunk.getSessionId(),
+            chunk.getContent().substring(0, Math.min(150, chunk.getContent().length())));
+      }
       elasticsearchIndexService.indexChunks(validChunks);
-      log.debug("Elasticsearch indexing complete for document {}", documentId);
+      log.info("Elasticsearch indexing complete for document {}", documentId);
+      log.info("========== INDEXING COMPLETE ==========");
 
       // Update document status to ready with actual indexed chunk count
       updateDocumentStatusWithRetry(documentId, DocumentStatus.READY, validChunks.size(), null);

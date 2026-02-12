@@ -125,11 +125,16 @@ public class ElasticsearchIndexService {
         }
 
         log.debug(
-            "Indexing chunk {}: file={}, contentLength={}, embeddingSize={}",
+            "Indexing chunk {}: sessionId={}, documentId={}, file={}, contentLength={}, embeddingSize={}",
             chunk.getId(),
+            chunk.getSessionId(),
+            chunk.getDocumentId(),
             chunk.getFileName(),
             chunk.getContent().length(),
             chunk.getEmbedding() != null ? chunk.getEmbedding().size() : 0);
+        log.debug(
+            "Chunk content preview: {}",
+            chunk.getContent().substring(0, Math.min(200, chunk.getContent().length())));
 
         bulkBuilder.operations(
             op -> op.index(idx -> idx.index(indexName).id(chunk.getId()).document(document)));
@@ -171,11 +176,16 @@ public class ElasticsearchIndexService {
 
   @CircuitBreaker(name = "elasticsearch", fallbackMethod = "vectorSearchFallback")
   public List<DocumentChunk> vectorSearch(UUID sessionId, List<Float> queryEmbedding, int topK) {
-    log.debug(
+    log.info("========== VECTOR SEARCH START ==========");
+    log.info(
         "vectorSearch called for session {}, topK={}, embedding size={}",
         sessionId,
         topK,
         queryEmbedding.size());
+    log.info("Filtering by sessionId: {}", sessionId);
+    log.info(
+        "First 5 dimensions of query embedding: {}",
+        queryEmbedding.subList(0, Math.min(5, queryEmbedding.size())));
     Timer.Sample sample = Timer.start(meterRegistry);
     try {
       // Use knn search at the request level with filter
@@ -197,23 +207,28 @@ public class ElasticsearchIndexService {
                                                       .value(sessionId.toString()))))
                       .size(topK));
 
-      log.debug("Executing vector search on index: {}", indexName);
+      log.info("Executing vector search on index: {}", indexName);
       SearchResponse<Map> response = elasticsearchClient.search(request, Map.class);
       List<DocumentChunk> results = mapHitsToChunks(response.hits().hits());
-      log.debug(
+      log.info(
           "Vector search returned {} results (total hits: {})",
           results.size(),
           response.hits().total() != null ? response.hits().total().value() : "unknown");
       if (!results.isEmpty()) {
-        log.debug(
-            "Top result: file={}, chunkIndex={}, contentPreview={}",
+        log.info(
+            "Top result: sessionId={}, documentId={}, file={}, chunkIndex={}, contentPreview={}",
+            results.get(0).getSessionId(),
+            results.get(0).getDocumentId(),
             results.get(0).getFileName(),
             results.get(0).getChunkIndex(),
             results
                 .get(0)
                 .getContent()
                 .substring(0, Math.min(100, results.get(0).getContent().length())));
+      } else {
+        log.warn("Vector search returned NO RESULTS for session {}!", sessionId);
       }
+      log.info("========== VECTOR SEARCH END ==========");
       return results;
     } catch (IOException e) {
       log.error("Vector search failed: {}", e.getMessage(), e);
@@ -232,7 +247,9 @@ public class ElasticsearchIndexService {
 
   @CircuitBreaker(name = "elasticsearch", fallbackMethod = "keywordSearchFallback")
   public List<DocumentChunk> keywordSearch(UUID sessionId, String query, int topK) {
-    log.debug("keywordSearch called for session {}, query='{}', topK={}", sessionId, query, topK);
+    log.info("========== KEYWORD SEARCH START ==========");
+    log.info("keywordSearch called for session {}, query='{}', topK={}", sessionId, query, topK);
+    log.info("Filtering by sessionId: {}", sessionId);
     Timer.Sample sample = Timer.start(meterRegistry);
     try {
       SearchRequest request =
@@ -254,23 +271,29 @@ public class ElasticsearchIndexService {
                                                   m.match(mt -> mt.field("content").query(query)))))
                       .size(topK));
 
-      log.debug("Executing keyword search on index: {}", indexName);
+      log.info("Executing keyword search on index: {}", indexName);
       SearchResponse<Map> response = elasticsearchClient.search(request, Map.class);
       List<DocumentChunk> results = mapHitsToChunks(response.hits().hits());
-      log.debug(
+      log.info(
           "Keyword search returned {} results (total hits: {})",
           results.size(),
           response.hits().total() != null ? response.hits().total().value() : "unknown");
       if (!results.isEmpty()) {
-        log.debug(
-            "Top keyword result: file={}, chunkIndex={}, contentPreview={}",
+        log.info(
+            "Top keyword result: sessionId={}, documentId={}, file={}, chunkIndex={}, contentPreview={}",
+            results.get(0).getSessionId(),
+            results.get(0).getDocumentId(),
             results.get(0).getFileName(),
             results.get(0).getChunkIndex(),
             results
                 .get(0)
                 .getContent()
                 .substring(0, Math.min(100, results.get(0).getContent().length())));
+      } else {
+        log.warn(
+            "Keyword search returned NO RESULTS for session {} and query '{}'!", sessionId, query);
       }
+      log.info("========== KEYWORD SEARCH END ==========");
       return results;
     } catch (IOException e) {
       log.error("Keyword search failed: {}", e.getMessage(), e);
