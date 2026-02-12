@@ -23,7 +23,8 @@
       "Bash(cmd /c \"cd /d E:\\\\workspaces\\\\aicoderpg\\\\notebooklm\\\\frontend && npm run build 2>&1\")",
       "Bash(cmd /c \"cd /d E:\\\\workspaces\\\\aicoderpg\\\\notebooklm\\\\frontend && npm run build\")",
       "Bash(findstr:*)",
-      "Bash(npm uninstall:*)"
+      "Bash(npm uninstall:*)",
+      "WebFetch(domain:developers.openai.com)"
     ]
   }
 }
