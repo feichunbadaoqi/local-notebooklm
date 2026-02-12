@@ -19,12 +19,19 @@ import org.springframework.stereotype.Service;
 @Slf4j
 public class EmbeddingService {
 
+  private static final int MAX_TOKENS_PER_EMBEDDING = 8000; // Leave margin below 8192 limit
+
   private final EmbeddingModel embeddingModel;
   private final MeterRegistry meterRegistry;
 
   @CircuitBreaker(name = "openai", fallbackMethod = "embedTextFallback")
   @Retry(name = "openai")
   public List<Float> embedText(String text) {
+    // Truncate if too long (roughly 4 chars per token)
+    if (text.length() > MAX_TOKENS_PER_EMBEDDING * 4) {
+      log.warn("Text too long for embedding, truncating from {} chars", text.length());
+      text = text.substring(0, MAX_TOKENS_PER_EMBEDDING * 4);
+    }
     Timer.Sample sample = Timer.start(meterRegistry);
     try {
       Response<Embedding> response = embeddingModel.embed(text);
@@ -47,9 +54,15 @@ public class EmbeddingService {
     Timer.Sample sample = Timer.start(meterRegistry);
     try {
       List<List<Float>> results = new ArrayList<>();
-      // Batch embeddings - LangChain4j handles batching internally
+      // Process embeddings one at a time to avoid batching issues
       for (String text : texts) {
-        Response<Embedding> response = embeddingModel.embed(text);
+        // Truncate if too long
+        String truncatedText = text;
+        if (text.length() > MAX_TOKENS_PER_EMBEDDING * 4) {
+          log.warn("Chunk too long for embedding, truncating from {} chars", text.length());
+          truncatedText = text.substring(0, MAX_TOKENS_PER_EMBEDDING * 4);
+        }
+        Response<Embedding> response = embeddingModel.embed(truncatedText);
         float[] vector = response.content().vector();
         List<Float> embedding = new ArrayList<>(vector.length);
         for (float f : vector) {

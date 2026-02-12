@@ -38,7 +38,7 @@ public class ElasticsearchIndexService {
   @Value("${app.elasticsearch.index-name:notebooklm-chunks}")
   private String indexName;
 
-  @Value("${app.elasticsearch.vector-dimensions:1536}")
+  @Value("${app.elasticsearch.vector-dimensions:3072}")
   private int vectorDimensions;
 
   @PostConstruct
