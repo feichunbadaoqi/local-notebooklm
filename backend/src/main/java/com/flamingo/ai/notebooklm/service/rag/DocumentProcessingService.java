@@ -128,19 +128,54 @@ public class DocumentProcessingService {
           embeddings.size(),
           embeddings.isEmpty() ? 0 : embeddings.get(0).size());
 
-      // Attach embeddings to chunks
-      for (int i = 0; i < documentChunks.size(); i++) {
-        List<Float> embedding = i < embeddings.size() ? embeddings.get(i) : List.of();
-        documentChunks.get(i).setEmbedding(embedding);
+      // Check if embedding generation failed
+      if (embeddings.isEmpty() || embeddings.size() != documentChunks.size()) {
+        throw new DocumentProcessingException(
+            documentId,
+            String.format(
+                "Embedding generation failed: expected %d embeddings, got %d",
+                documentChunks.size(), embeddings.size()));
       }
 
-      // Index chunks in Elasticsearch
-      log.debug("Indexing {} chunks to Elasticsearch...", documentChunks.size());
-      elasticsearchIndexService.indexChunks(documentChunks);
+      // Attach embeddings to chunks and filter out any with empty embeddings
+      List<DocumentChunk> validChunks = new ArrayList<>();
+      int skippedChunks = 0;
+
+      for (int i = 0; i < documentChunks.size(); i++) {
+        List<Float> embedding = embeddings.get(i);
+
+        // Skip chunks with empty or invalid embeddings
+        if (embedding == null || embedding.isEmpty()) {
+          log.warn("Skipping chunk {} due to empty embedding", i);
+          skippedChunks++;
+          continue;
+        }
+
+        documentChunks.get(i).setEmbedding(embedding);
+        validChunks.add(documentChunks.get(i));
+      }
+
+      if (skippedChunks > 0) {
+        log.warn("Skipped {} chunks with failed embeddings", skippedChunks);
+      }
+
+      // Fail if too many chunks were skipped (more than 10%)
+      if (validChunks.isEmpty()
+          || (skippedChunks > documentChunks.size() * 0.1 && documentChunks.size() > 10)) {
+        throw new DocumentProcessingException(
+            documentId,
+            String.format(
+                "Too many chunks failed embedding generation: %d/%d skipped",
+                skippedChunks, documentChunks.size()));
+      }
+
+      // Index only valid chunks in Elasticsearch
+      log.debug("Indexing {} valid chunks to Elasticsearch...", validChunks.size());
+      elasticsearchIndexService.indexChunks(validChunks);
       log.debug("Elasticsearch indexing complete for document {}", documentId);
 
-      // Update document status to ready
-      updateDocumentStatusWithRetry(documentId, DocumentStatus.READY, chunks.size(), null);
+      // Update document status to ready with actual indexed chunk count
+      updateDocumentStatusWithRetry(documentId, DocumentStatus.READY, validChunks.size(), null);
 
       meterRegistry.counter("document.processing.success").increment();
       log.info("Successfully processed document: {}", documentId);
