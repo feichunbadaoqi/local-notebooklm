@@ -202,6 +202,9 @@ export class SessionLayoutComponent implements OnInit {
     const session = this.sessionService.currentSession();
     if (!session) return;
 
+    // Close the modal immediately so user can see documents appearing in the list
+    this.showUploadModal.set(false);
+
     for (const file of files) {
       this.documentService.uploadDocument(session.id, file).subscribe({
         error: (err) => console.error('Upload failed:', err)

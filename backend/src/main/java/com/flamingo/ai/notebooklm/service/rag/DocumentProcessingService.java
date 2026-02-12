@@ -225,6 +225,8 @@ public class DocumentProcessingService {
     List<String> chunks = new ArrayList<>();
     int chunkSize = ragConfig.getChunking().getSize();
     int overlap = ragConfig.getChunking().getOverlap();
+    // Hard limit to stay within embedding token limit (conservative: 2.5 chars/token)
+    int maxCharsPerChunk = 15000; // ~6000 tokens, leaves room for metadata enrichment
 
     // Split by paragraphs first for better semantic boundaries
     String[] paragraphs = content.split("\\n\\n+");
@@ -232,6 +234,19 @@ public class DocumentProcessingService {
     int currentTokens = 0;
 
     for (String paragraph : paragraphs) {
+      // If a single paragraph exceeds max size, split it by sentences
+      if (paragraph.length() > maxCharsPerChunk) {
+        // First, save any existing chunk content
+        if (currentChunk.length() > 0) {
+          chunks.add(currentChunk.toString().trim());
+          currentChunk = new StringBuilder();
+          currentTokens = 0;
+        }
+        // Split large paragraph into smaller pieces
+        chunks.addAll(splitLargeParagraph(paragraph, maxCharsPerChunk, overlap));
+        continue;
+      }
+
       int paragraphTokens = estimateTokenCount(paragraph);
 
       if (currentTokens + paragraphTokens > chunkSize && currentChunk.length() > 0) {
@@ -244,11 +259,66 @@ public class DocumentProcessingService {
         currentTokens = estimateTokenCount(overlapText);
       }
 
+      // Check if adding this paragraph would exceed max chars
+      if (currentChunk.length() + paragraph.length() > maxCharsPerChunk
+          && currentChunk.length() > 0) {
+        chunks.add(currentChunk.toString().trim());
+        String overlapText = getOverlapText(currentChunk.toString(), overlap);
+        currentChunk = new StringBuilder(overlapText);
+        currentTokens = estimateTokenCount(overlapText);
+      }
+
       currentChunk.append(paragraph).append("\n\n");
       currentTokens += paragraphTokens;
     }
 
     // Add final chunk
+    if (currentChunk.length() > 0) {
+      chunks.add(currentChunk.toString().trim());
+    }
+
+    return chunks;
+  }
+
+  /**
+   * Splits a large paragraph into smaller chunks by sentences.
+   *
+   * @param paragraph the large paragraph to split
+   * @param maxChars maximum characters per chunk
+   * @param overlap overlap in tokens
+   * @return list of smaller chunks
+   */
+  private List<String> splitLargeParagraph(String paragraph, int maxChars, int overlap) {
+    List<String> chunks = new ArrayList<>();
+
+    // Split by sentences (period, question mark, exclamation followed by space)
+    String[] sentences = paragraph.split("(?<=[.!?])\\s+");
+    StringBuilder currentChunk = new StringBuilder();
+
+    for (String sentence : sentences) {
+      // If a single sentence is too long, split by character limit
+      if (sentence.length() > maxChars) {
+        if (currentChunk.length() > 0) {
+          chunks.add(currentChunk.toString().trim());
+          currentChunk = new StringBuilder();
+        }
+        // Force split long sentence
+        for (int i = 0; i < sentence.length(); i += maxChars - 100) {
+          int end = Math.min(i + maxChars - 100, sentence.length());
+          chunks.add(sentence.substring(i, end));
+        }
+        continue;
+      }
+
+      if (currentChunk.length() + sentence.length() > maxChars && currentChunk.length() > 0) {
+        chunks.add(currentChunk.toString().trim());
+        String overlapText = getOverlapText(currentChunk.toString(), overlap);
+        currentChunk = new StringBuilder(overlapText);
+      }
+
+      currentChunk.append(sentence).append(" ");
+    }
+
     if (currentChunk.length() > 0) {
       chunks.add(currentChunk.toString().trim());
     }

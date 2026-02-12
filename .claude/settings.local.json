@@ -28,7 +28,8 @@
       "Bash(curl:*)",
       "Bash(docker ps:*)",
       "Bash(docker compose:*)",
-      "Bash(./gradlew check:*)"
+      "Bash(./gradlew check:*)",
+      "Bash(cd:*)"
     ]
   }
 }

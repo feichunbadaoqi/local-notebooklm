@@ -91,8 +91,31 @@ export class DocumentService implements OnDestroy {
           progress: 100,
           status: 'processing'
         });
-        // Start polling for document processing status
+
+        // Immediately add document to the list with PENDING/PROCESSING status
         if (response.id) {
+          const newDoc: Document = {
+            id: response.id,
+            sessionId: sessionId,
+            fileName: response.fileName || file.name,
+            mimeType: file.type || 'application/octet-stream',
+            status: response.status || 'PROCESSING',
+            chunkCount: 0,
+            fileSize: file.size,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+          };
+
+          // Add to documents list immediately
+          this.documentsSignal.update(docs => {
+            // Check if document already exists (avoid duplicates)
+            if (docs.some(d => d.id === newDoc.id)) {
+              return docs;
+            }
+            return [newDoc, ...docs];
+          });
+
+          // Start polling for document processing status
           this.startStatusPolling(sessionId, response.id, file.name);
         }
       }),
@@ -156,13 +179,15 @@ export class DocumentService implements OnDestroy {
       next: (doc) => {
         console.debug(`Document ${documentId} status: ${doc.status}`);
 
+        // Update the document in the list with latest status
+        this.updateDocumentInList(doc);
+
         if (doc.status === 'READY') {
           this.updateUploadProgress(fileName, {
             fileName,
             progress: 100,
             status: 'complete'
           });
-          this.loadDocuments(sessionId);
           this.stopStatusPolling(documentId);
           // Auto-clear progress after 3 seconds
           setTimeout(() => this.clearUploadProgress(fileName), 3000);
@@ -173,7 +198,6 @@ export class DocumentService implements OnDestroy {
             status: 'error',
             error: doc.processingError || 'Processing failed'
           });
-          this.loadDocuments(sessionId);
           this.stopStatusPolling(documentId);
         }
       },
@@ -202,5 +226,22 @@ export class DocumentService implements OnDestroy {
 
   private getDocumentStatus(documentId: string): Observable<Document> {
     return this.http.get<Document>(`${this.documentsApiUrl}/${documentId}/status`);
+  }
+
+  /**
+   * Update a document in the documents list with new data
+   */
+  private updateDocumentInList(updatedDoc: Document): void {
+    this.documentsSignal.update(docs => {
+      const index = docs.findIndex(d => d.id === updatedDoc.id);
+      if (index === -1) {
+        // Document not in list, add it
+        return [updatedDoc, ...docs];
+      }
+      // Replace the document with updated data
+      const newDocs = [...docs];
+      newDocs[index] = updatedDoc;
+      return newDocs;
+    });
   }
 }

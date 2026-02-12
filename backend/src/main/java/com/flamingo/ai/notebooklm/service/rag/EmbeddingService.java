@@ -19,7 +19,12 @@ import org.springframework.stereotype.Service;
 @Slf4j
 public class EmbeddingService {
 
-  private static final int MAX_TOKENS_PER_EMBEDDING = 8000; // Leave margin below 8192 limit
+  // OpenAI text-embedding-3-small has 8192 token limit
+  // Use conservative estimate: ~2.5 chars per token (technical content has shorter tokens)
+  private static final int MAX_TOKENS_PER_EMBEDDING = 7500; // Leave margin below 8192 limit
+  private static final double CHARS_PER_TOKEN_ESTIMATE = 2.5;
+  private static final int MAX_CHARS_PER_EMBEDDING =
+      (int) (MAX_TOKENS_PER_EMBEDDING * CHARS_PER_TOKEN_ESTIMATE);
 
   private final EmbeddingModel embeddingModel;
   private final MeterRegistry meterRegistry;
@@ -28,10 +33,13 @@ public class EmbeddingService {
   @Retry(name = "openai")
   public List<Float> embedText(String text) {
     log.debug("embedText called, input length: {} chars", text.length());
-    // Truncate if too long (roughly 4 chars per token)
-    if (text.length() > MAX_TOKENS_PER_EMBEDDING * 4) {
-      log.warn("Text too long for embedding, truncating from {} chars", text.length());
-      text = text.substring(0, MAX_TOKENS_PER_EMBEDDING * 4);
+    // Truncate if too long - use conservative estimate
+    if (text.length() > MAX_CHARS_PER_EMBEDDING) {
+      log.warn(
+          "Text too long for embedding, truncating from {} chars to {} chars",
+          text.length(),
+          MAX_CHARS_PER_EMBEDDING);
+      text = text.substring(0, MAX_CHARS_PER_EMBEDDING);
     }
     Timer.Sample sample = Timer.start(meterRegistry);
     try {
@@ -58,12 +66,17 @@ public class EmbeddingService {
     try {
       List<List<Float>> results = new ArrayList<>();
       // Process embeddings one at a time to avoid batching issues
-      for (String text : texts) {
-        // Truncate if too long
+      for (int i = 0; i < texts.size(); i++) {
+        String text = texts.get(i);
+        // Truncate if too long - use conservative estimate
         String truncatedText = text;
-        if (text.length() > MAX_TOKENS_PER_EMBEDDING * 4) {
-          log.warn("Chunk too long for embedding, truncating from {} chars", text.length());
-          truncatedText = text.substring(0, MAX_TOKENS_PER_EMBEDDING * 4);
+        if (text.length() > MAX_CHARS_PER_EMBEDDING) {
+          log.warn(
+              "Chunk {} too long for embedding, truncating from {} chars to {} chars",
+              i,
+              text.length(),
+              MAX_CHARS_PER_EMBEDDING);
+          truncatedText = text.substring(0, MAX_CHARS_PER_EMBEDDING);
         }
         Response<Embedding> response = embeddingModel.embed(truncatedText);
         float[] vector = response.content().vector();

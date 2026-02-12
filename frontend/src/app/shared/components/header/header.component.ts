@@ -1,11 +1,12 @@
 import { Component, input, output } from '@angular/core';
+import { RouterLink } from '@angular/router';
 import { InteractionMode } from '../../../core/models';
 import { ModeSelectorComponent } from '../mode-selector/mode-selector.component';
 
 @Component({
   selector: 'app-header',
   standalone: true,
-  imports: [ModeSelectorComponent],
+  imports: [ModeSelectorComponent, RouterLink],
   host: {
     class: 'flex-shrink-0'
   },
@@ -13,12 +14,12 @@ import { ModeSelectorComponent } from '../mode-selector/mode-selector.component'
     <header class="h-14 px-4 flex items-center justify-between border-b border-border bg-bg-main">
       <!-- Left side - Logo and title -->
       <div class="flex items-center gap-3">
-        <div class="flex items-center gap-2">
+        <a routerLink="/" class="flex items-center gap-2 hover:opacity-80 transition-opacity" title="Back to Home">
           <svg class="w-8 h-8 text-primary" viewBox="0 0 24 24" fill="currentColor">
             <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
           </svg>
           <span class="text-lg font-semibold text-text-primary">NotebookLM</span>
-        </div>
+        </a>
         <span class="text-text-muted">/</span>
         <h1 class="text-base font-medium text-text-primary truncate max-w-md">
           {{ sessionTitle() }}
