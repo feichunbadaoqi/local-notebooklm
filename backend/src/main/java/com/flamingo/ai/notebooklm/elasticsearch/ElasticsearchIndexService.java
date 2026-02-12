@@ -44,12 +44,17 @@ public class ElasticsearchIndexService {
   @PostConstruct
   public void initIndex() {
     try {
-      boolean exists = elasticsearchClient.indices().exists(e -> e.index(indexName)).value();
+      var indices = elasticsearchClient.indices();
+      if (indices == null) {
+        log.warn("Elasticsearch client not available, skipping index initialization");
+        return;
+      }
+      boolean exists = indices.exists(e -> e.index(indexName)).value();
       if (!exists) {
         createIndex();
         log.info("Created Elasticsearch index: {}", indexName);
       }
-    } catch (IOException e) {
+    } catch (Exception e) {
       log.warn("Could not check/create Elasticsearch index: {}", e.getMessage());
     }
   }

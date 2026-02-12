@@ -1,1 +1,296 @@
-/* You can add global styles to this file, and also import other style files */
+@import "tailwindcss";
+
+/* Custom theme configuration */
+@theme {
+  /* Brand colors - similar to NotebookLM/Google style */
+  --color-primary: #1a73e8;
+  --color-primary-hover: #1557b0;
+  --color-primary-light: #e8f0fe;
+
+  --color-secondary: #5f6368;
+  --color-secondary-hover: #3c4043;
+
+  --color-success: #1e8e3e;
+  --color-warning: #f9ab00;
+  --color-danger: #d93025;
+
+  /* Background colors */
+  --color-bg-main: #ffffff;
+  --color-bg-sidebar: #f8f9fa;
+  --color-bg-hover: #f1f3f4;
+  --color-bg-active: #e8f0fe;
+
+  /* Border colors */
+  --color-border: #dadce0;
+  --color-border-light: #e8eaed;
+
+  /* Text colors */
+  --color-text-primary: #202124;
+  --color-text-secondary: #5f6368;
+  --color-text-muted: #80868b;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 2px 0 rgba(60, 64, 67, 0.3), 0 1px 3px 1px rgba(60, 64, 67, 0.15);
+  --shadow-md: 0 1px 3px 0 rgba(60, 64, 67, 0.3), 0 4px 8px 3px rgba(60, 64, 67, 0.15);
+  --shadow-lg: 0 1px 3px 0 rgba(60, 64, 67, 0.3), 0 8px 16px 4px rgba(60, 64, 67, 0.15);
+
+  /* Font family */
+  --font-family-sans: 'Google Sans', 'Roboto', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+
+  /* Border radius */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 16px;
+  --radius-xl: 24px;
+  --radius-full: 9999px;
+}
+
+/* Base styles */
+html, body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  font-family: var(--font-family-sans);
+  background-color: var(--color-bg-main);
+  color: var(--color-text-primary);
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: var(--radius-full);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-secondary);
+}
+
+/* Bootstrap-style utility classes */
+@utility btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 24px;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.5;
+  border-radius: var(--radius-md);
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-decoration: none;
+}
+
+@utility btn-primary {
+  background-color: var(--color-primary);
+  color: white;
+}
+
+@utility btn-primary:hover {
+  background-color: var(--color-primary-hover);
+}
+
+@utility btn-secondary {
+  background-color: transparent;
+  color: var(--color-primary);
+  border: 1px solid var(--color-border);
+}
+
+@utility btn-secondary:hover {
+  background-color: var(--color-primary-light);
+}
+
+@utility btn-icon {
+  padding: 8px;
+  border-radius: var(--radius-full);
+  background: transparent;
+  color: var(--color-secondary);
+}
+
+@utility btn-icon:hover {
+  background-color: var(--color-bg-hover);
+}
+
+@utility card {
+  background: var(--color-bg-main);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+@utility input-field {
+  width: 100%;
+  padding: 12px 16px;
+  font-size: 14px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-main);
+  color: var(--color-text-primary);
+  outline: none;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+@utility input-field:focus {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px var(--color-primary-light);
+}
+
+@utility badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  font-size: 12px;
+  font-weight: 500;
+  border-radius: var(--radius-full);
+}
+
+@utility badge-primary {
+  background-color: var(--color-primary-light);
+  color: var(--color-primary);
+}
+
+@utility badge-success {
+  background-color: #e6f4ea;
+  color: var(--color-success);
+}
+
+@utility badge-warning {
+  background-color: #fef7e0;
+  color: var(--color-warning);
+}
+
+/* Animation utilities */
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@utility animate-spin {
+  animation: spin 1s linear infinite;
+}
+
+@utility animate-pulse {
+  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@utility animate-fadeIn {
+  animation: fadeIn 0.2s ease-out;
+}
+
+@utility animate-slideIn {
+  animation: slideIn 0.3s ease-out;
+}
+
+/* Chat message styling */
+@utility message-user {
+  background-color: var(--color-primary);
+  color: white;
+  border-radius: var(--radius-lg) var(--radius-lg) var(--radius-sm) var(--radius-lg);
+}
+
+@utility message-assistant {
+  background-color: var(--color-bg-sidebar);
+  color: var(--color-text-primary);
+  border-radius: var(--radius-lg) var(--radius-lg) var(--radius-lg) var(--radius-sm);
+}
+
+/* Citation styling */
+@utility citation {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  font-size: 11px;
+  font-weight: 600;
+  background-color: var(--color-primary-light);
+  color: var(--color-primary);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+@utility citation:hover {
+  background-color: var(--color-primary);
+  color: white;
+}
+
+/* Modal overlay */
+@utility modal-overlay {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+}
+
+@utility modal-content {
+  background: var(--color-bg-main);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-lg);
+  max-width: 560px;
+  width: 90%;
+  max-height: 90vh;
+  overflow: auto;
+}
+
+/* Source item styling */
+@utility source-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+@utility source-item:hover {
+  background-color: var(--color-bg-hover);
+}
+
+@utility source-item-active {
+  background-color: var(--color-bg-active);
+}
