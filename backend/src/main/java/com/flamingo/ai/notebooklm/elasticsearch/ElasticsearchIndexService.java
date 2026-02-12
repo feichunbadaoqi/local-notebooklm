@@ -84,6 +84,9 @@ public class ElasticsearchIndexService {
 
   @CircuitBreaker(name = "elasticsearch", fallbackMethod = "indexChunksFallback")
   public void indexChunks(List<DocumentChunk> chunks) {
+    log.info("indexChunks called with {} chunks for session {}",
+        chunks.size(),
+        chunks.isEmpty() ? "unknown" : chunks.get(0).getSessionId());
     Timer.Sample sample = Timer.start(meterRegistry);
     try {
       BulkRequest.Builder bulkBuilder = new BulkRequest.Builder();
@@ -98,22 +101,35 @@ public class ElasticsearchIndexService {
         document.put("tokenCount", chunk.getTokenCount());
         document.put("embedding", chunk.getEmbedding());
 
+        log.debug("Indexing chunk {}: file={}, contentLength={}, embeddingSize={}",
+            chunk.getId(),
+            chunk.getFileName(),
+            chunk.getContent().length(),
+            chunk.getEmbedding() != null ? chunk.getEmbedding().size() : 0);
+
         bulkBuilder.operations(
             op -> op.index(idx -> idx.index(indexName).id(chunk.getId()).document(document)));
       }
 
+      log.debug("Executing bulk index request to index: {}", indexName);
       BulkResponse response = elasticsearchClient.bulk(bulkBuilder.build());
 
       if (response.errors()) {
-        log.error("Bulk indexing had errors");
+        log.error("Bulk indexing had errors: {}", response.toString());
+        response.items().forEach(item -> {
+          if (item.error() != null) {
+            log.error("Index error for {}: {}", item.id(), item.error().reason());
+          }
+        });
         meterRegistry.counter("elasticsearch.index.errors").increment();
       } else {
+        log.info("Successfully indexed {} chunks to Elasticsearch", chunks.size());
         meterRegistry
             .counter("elasticsearch.index.success", "count", String.valueOf(chunks.size()))
             .increment();
       }
     } catch (IOException e) {
-      log.error("Failed to index chunks: {}", e.getMessage());
+      log.error("Failed to index chunks: {}", e.getMessage(), e);
       throw new RuntimeException("Elasticsearch indexing failed", e);
     } finally {
       sample.stop(meterRegistry.timer("elasticsearch.index.duration"));
@@ -128,6 +144,8 @@ public class ElasticsearchIndexService {
 
   @CircuitBreaker(name = "elasticsearch", fallbackMethod = "vectorSearchFallback")
   public List<DocumentChunk> vectorSearch(UUID sessionId, List<Float> queryEmbedding, int topK) {
+    log.debug("vectorSearch called for session {}, topK={}, embedding size={}",
+        sessionId, topK, queryEmbedding.size());
     Timer.Sample sample = Timer.start(meterRegistry);
     try {
       // Use knn search at the request level with filter
@@ -149,10 +167,21 @@ public class ElasticsearchIndexService {
                                                       .value(sessionId.toString()))))
                       .size(topK));
 
+      log.debug("Executing vector search on index: {}", indexName);
       SearchResponse<Map> response = elasticsearchClient.search(request, Map.class);
-      return mapHitsToChunks(response.hits().hits());
+      List<DocumentChunk> results = mapHitsToChunks(response.hits().hits());
+      log.debug("Vector search returned {} results (total hits: {})",
+          results.size(),
+          response.hits().total() != null ? response.hits().total().value() : "unknown");
+      if (!results.isEmpty()) {
+        log.debug("Top result: file={}, chunkIndex={}, contentPreview={}",
+            results.get(0).getFileName(),
+            results.get(0).getChunkIndex(),
+            results.get(0).getContent().substring(0, Math.min(100, results.get(0).getContent().length())));
+      }
+      return results;
     } catch (IOException e) {
-      log.error("Vector search failed: {}", e.getMessage());
+      log.error("Vector search failed: {}", e.getMessage(), e);
       throw new RuntimeException("Vector search failed", e);
     } finally {
       sample.stop(meterRegistry.timer("elasticsearch.vectorsearch.duration"));
@@ -168,6 +197,8 @@ public class ElasticsearchIndexService {
 
   @CircuitBreaker(name = "elasticsearch", fallbackMethod = "keywordSearchFallback")
   public List<DocumentChunk> keywordSearch(UUID sessionId, String query, int topK) {
+    log.debug("keywordSearch called for session {}, query='{}', topK={}",
+        sessionId, query, topK);
     Timer.Sample sample = Timer.start(meterRegistry);
     try {
       SearchRequest request =
@@ -189,10 +220,21 @@ public class ElasticsearchIndexService {
                                                   m.match(mt -> mt.field("content").query(query)))))
                       .size(topK));
 
+      log.debug("Executing keyword search on index: {}", indexName);
       SearchResponse<Map> response = elasticsearchClient.search(request, Map.class);
-      return mapHitsToChunks(response.hits().hits());
+      List<DocumentChunk> results = mapHitsToChunks(response.hits().hits());
+      log.debug("Keyword search returned {} results (total hits: {})",
+          results.size(),
+          response.hits().total() != null ? response.hits().total().value() : "unknown");
+      if (!results.isEmpty()) {
+        log.debug("Top keyword result: file={}, chunkIndex={}, contentPreview={}",
+            results.get(0).getFileName(),
+            results.get(0).getChunkIndex(),
+            results.get(0).getContent().substring(0, Math.min(100, results.get(0).getContent().length())));
+      }
+      return results;
     } catch (IOException e) {
-      log.error("Keyword search failed: {}", e.getMessage());
+      log.error("Keyword search failed: {}", e.getMessage(), e);
       throw new RuntimeException("Keyword search failed", e);
     } finally {
       sample.stop(meterRegistry.timer("elasticsearch.keywordsearch.duration"));

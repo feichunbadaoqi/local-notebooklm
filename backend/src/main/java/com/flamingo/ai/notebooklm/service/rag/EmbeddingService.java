@@ -27,6 +27,7 @@ public class EmbeddingService {
   @CircuitBreaker(name = "openai", fallbackMethod = "embedTextFallback")
   @Retry(name = "openai")
   public List<Float> embedText(String text) {
+    log.debug("embedText called, input length: {} chars", text.length());
     // Truncate if too long (roughly 4 chars per token)
     if (text.length() > MAX_TOKENS_PER_EMBEDDING * 4) {
       log.warn("Text too long for embedding, truncating from {} chars", text.length());
@@ -34,10 +35,12 @@ public class EmbeddingService {
     }
     Timer.Sample sample = Timer.start(meterRegistry);
     try {
+      log.debug("Calling OpenAI embedding API...");
       Response<Embedding> response = embeddingModel.embed(text);
       meterRegistry.counter("embedding.requests.success").increment();
 
       float[] vector = response.content().vector();
+      log.debug("Embedding generated successfully, vector dimension: {}", vector.length);
       List<Float> result = new ArrayList<>(vector.length);
       for (float f : vector) {
         result.add(f);

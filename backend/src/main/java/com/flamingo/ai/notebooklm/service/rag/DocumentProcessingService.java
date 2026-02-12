@@ -16,8 +16,10 @@ import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.tika.Tika;
+import org.springframework.dao.CannotAcquireLockException;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 /** Service for processing documents: parsing with Tika, chunking, and indexing. */
@@ -34,6 +36,9 @@ public class DocumentProcessingService {
 
   private final Tika tika = new Tika();
 
+  private static final int MAX_RETRIES = 3;
+  private static final long RETRY_DELAY_MS = 100;
+
   /**
    * Processes a document asynchronously: parse, chunk, embed, and index.
    *
@@ -41,18 +46,13 @@ public class DocumentProcessingService {
    * @param inputStream the document content stream
    */
   @Async("documentProcessingExecutor")
-  @Transactional
   public void processDocumentAsync(UUID documentId, InputStream inputStream) {
     Timer.Sample sample = Timer.start(meterRegistry);
     try {
-      Document document =
-          documentRepository
-              .findById(documentId)
-              .orElseThrow(() -> new DocumentProcessingException(documentId, "Document not found"));
+      Document document = getDocumentWithRetry(documentId);
 
       // Update status to processing
-      document.setStatus(DocumentStatus.PROCESSING);
-      documentRepository.save(document);
+      updateDocumentStatusWithRetry(documentId, DocumentStatus.PROCESSING, null, null);
 
       // Parse document with Tika
       String content = parseDocument(inputStream);
@@ -65,7 +65,11 @@ public class DocumentProcessingService {
       log.info("Document {} split into {} chunks", documentId, chunks.size());
 
       // Generate embeddings for all chunks
+      log.debug("Generating embeddings for {} chunks...", chunks.size());
       List<List<Float>> embeddings = embeddingService.embedTexts(chunks);
+      log.debug("Generated {} embeddings, first embedding size: {}",
+          embeddings.size(),
+          embeddings.isEmpty() ? 0 : embeddings.get(0).size());
 
       // Create document chunks with embeddings
       List<DocumentChunk> documentChunks = new ArrayList<>();
@@ -87,12 +91,12 @@ public class DocumentProcessingService {
       }
 
       // Index chunks in Elasticsearch
+      log.debug("Indexing {} chunks to Elasticsearch...", documentChunks.size());
       elasticsearchIndexService.indexChunks(documentChunks);
+      log.debug("Elasticsearch indexing complete for document {}", documentId);
 
-      // Update document status
-      document.setStatus(DocumentStatus.READY);
-      document.setChunkCount(chunks.size());
-      documentRepository.save(document);
+      // Update document status to ready
+      updateDocumentStatusWithRetry(documentId, DocumentStatus.READY, chunks.size(), null);
 
       meterRegistry.counter("document.processing.success").increment();
       log.info("Successfully processed document: {}", documentId);
@@ -101,16 +105,63 @@ public class DocumentProcessingService {
       log.error("Failed to process document {}: {}", documentId, e.getMessage());
       meterRegistry.counter("document.processing.failure").increment();
 
-      // Update status to failed
-      documentRepository
-          .findById(documentId)
-          .ifPresent(
-              doc -> {
-                doc.markFailed(e.getMessage());
-                documentRepository.save(doc);
-              });
+      // Update status to failed with retry
+      try {
+        updateDocumentStatusWithRetry(documentId, DocumentStatus.FAILED, null, e.getMessage());
+      } catch (Exception retryEx) {
+        log.error("Failed to update document status after retries: {}", retryEx.getMessage());
+      }
     } finally {
       sample.stop(meterRegistry.timer("document.processing.duration"));
+    }
+  }
+
+  /** Gets a document with retry logic for SQLite lock contention. */
+  @Transactional(readOnly = true)
+  public Document getDocumentWithRetry(UUID documentId) {
+    return documentRepository
+        .findById(documentId)
+        .orElseThrow(() -> new DocumentProcessingException(documentId, "Document not found"));
+  }
+
+  /** Updates document status with retry logic for SQLite lock contention. */
+  @Transactional(propagation = Propagation.REQUIRES_NEW)
+  public void updateDocumentStatusWithRetry(
+      UUID documentId, DocumentStatus status, Integer chunkCount, String error) {
+    for (int attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        Document document =
+            documentRepository
+                .findById(documentId)
+                .orElseThrow(
+                    () -> new DocumentProcessingException(documentId, "Document not found"));
+
+        document.setStatus(status);
+        if (chunkCount != null) {
+          document.setChunkCount(chunkCount);
+        }
+        if (error != null) {
+          document.markFailed(error);
+        }
+        documentRepository.saveAndFlush(document);
+        return; // Success
+      } catch (CannotAcquireLockException e) {
+        if (attempt == MAX_RETRIES) {
+          log.error("Failed to update document {} after {} retries", documentId, MAX_RETRIES);
+          throw e;
+        }
+        log.warn(
+            "SQLite lock contention on document {}, retry {}/{}",
+            documentId,
+            attempt,
+            MAX_RETRIES);
+        try {
+          Thread.sleep(RETRY_DELAY_MS * attempt); // Exponential backoff
+        } catch (InterruptedException ie) {
+          Thread.currentThread().interrupt();
+          throw new RuntimeException("Interrupted during retry", ie);
+        }
+      }
     }
   }
 

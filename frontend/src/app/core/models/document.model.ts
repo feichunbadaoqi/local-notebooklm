@@ -9,6 +9,7 @@ export interface Document {
   chunkCount: number;
   fileSize: number;
   errorMessage?: string;
+  processingError?: string;
   createdAt: string;
   updatedAt: string;
 }

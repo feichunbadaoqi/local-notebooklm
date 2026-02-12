@@ -6,6 +6,9 @@ import { ModeSelectorComponent } from '../mode-selector/mode-selector.component'
   selector: 'app-header',
   standalone: true,
   imports: [ModeSelectorComponent],
+  host: {
+    class: 'flex-shrink-0'
+  },
   template: `
     <header class="h-14 px-4 flex items-center justify-between border-b border-border bg-bg-main">
       <!-- Left side - Logo and title -->

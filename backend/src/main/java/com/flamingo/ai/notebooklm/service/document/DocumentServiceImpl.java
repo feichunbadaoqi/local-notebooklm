@@ -10,6 +10,7 @@ import com.flamingo.ai.notebooklm.service.rag.DocumentProcessingService;
 import com.flamingo.ai.notebooklm.service.session.SessionService;
 import io.micrometer.core.annotation.Timed;
 import io.micrometer.core.instrument.MeterRegistry;
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.util.List;
 import java.util.Set;
@@ -18,6 +19,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.multipart.MultipartFile;
 
 /** Implementation of the DocumentService. */
@@ -76,14 +79,27 @@ public class DocumentServiceImpl implements DocumentService {
         .counter("document.uploaded", "type", getFileType(file.getContentType()))
         .increment();
 
-    // Trigger async processing with DocumentProcessingService
+    // Read file bytes now (before transaction ends) so we can process after commit
+    final byte[] fileBytes;
     try {
-      documentProcessingService.processDocumentAsync(saved.getId(), file.getInputStream());
+      fileBytes = file.getBytes();
     } catch (IOException e) {
-      log.error("Failed to get input stream for document: {}", e.getMessage());
+      log.error("Failed to read file bytes: {}", e.getMessage());
       saved.markFailed("Failed to read file content");
-      documentRepository.save(saved);
+      return documentRepository.save(saved);
     }
+
+    // Trigger async processing AFTER transaction commits to avoid race condition
+    final UUID documentId = saved.getId();
+    TransactionSynchronizationManager.registerSynchronization(
+        new TransactionSynchronization() {
+          @Override
+          public void afterCommit() {
+            log.debug("Transaction committed, starting async processing for document: {}", documentId);
+            documentProcessingService.processDocumentAsync(
+                documentId, new ByteArrayInputStream(fileBytes));
+          }
+        });
 
     log.info("Document {} uploaded with ID: {}", file.getOriginalFilename(), saved.getId());
     return saved;

@@ -18,6 +18,7 @@ spring:
     hibernate:
       ddl-auto: update
     show-sql: false
+    open-in-view: false  # Disable to avoid lazy loading issues in views
     properties:
       hibernate:
         format_sql: true
@@ -53,7 +54,7 @@ langchain4j:
     chat-model:
       model-name: gpt-5.2  # Latest GPT-5.2 model
       temperature: 0.7
-      max-tokens: 4096
+      max-completion-tokens: 4096
       timeout: 120s
     embedding-model:
       model-name: text-embedding-3-large  # Best embedding model

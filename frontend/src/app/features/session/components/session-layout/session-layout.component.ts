@@ -9,6 +9,9 @@ import { HeaderComponent } from '../../../../shared/components/header/header.com
   selector: 'app-session-layout',
   standalone: true,
   imports: [SourcesPanelComponent, ChatAreaComponent, HeaderComponent],
+  host: {
+    class: 'block h-full'
+  },
   template: `
     <div class="flex flex-col h-screen bg-bg-main">
       <!-- Header -->

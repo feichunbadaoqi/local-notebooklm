@@ -25,14 +25,28 @@ public class SessionResponse {
   private LocalDateTime updatedAt;
   private LocalDateTime lastAccessedAt;
 
-  /** Creates a SessionResponse from a Session entity. */
-  public static SessionResponse fromEntity(Session session) {
+  /** Creates a SessionResponse from a Session entity with counts. */
+  public static SessionResponse fromEntity(Session session, long documentCount, long messageCount) {
     return SessionResponse.builder()
         .id(session.getId())
         .title(session.getTitle())
         .currentMode(session.getCurrentMode())
-        .documentCount(session.getDocuments() != null ? session.getDocuments().size() : 0)
-        .messageCount(session.getMessages() != null ? session.getMessages().size() : 0)
+        .documentCount((int) documentCount)
+        .messageCount((int) messageCount)
+        .createdAt(session.getCreatedAt())
+        .updatedAt(session.getUpdatedAt())
+        .lastAccessedAt(session.getLastAccessedAt())
+        .build();
+  }
+
+  /** Creates a SessionResponse from a Session entity without counts (defaults to 0). */
+  public static SessionResponse fromEntityWithoutCounts(Session session) {
+    return SessionResponse.builder()
+        .id(session.getId())
+        .title(session.getTitle())
+        .currentMode(session.getCurrentMode())
+        .documentCount(0)
+        .messageCount(0)
         .createdAt(session.getCreatedAt())
         .updatedAt(session.getUpdatedAt())
         .lastAccessedAt(session.getLastAccessedAt())

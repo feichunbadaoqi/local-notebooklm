@@ -56,42 +56,56 @@ public class ChatServiceImpl implements ChatService {
   @CircuitBreaker(name = "openai", fallbackMethod = "streamChatFallback")
   @Retry(name = "openai")
   public Flux<StreamChunkResponse> streamChat(UUID sessionId, String userMessage) {
+    log.debug("streamChat called for session {} with message: {}", sessionId, userMessage);
     Timer.Sample sample = Timer.start(meterRegistry);
 
     Session session = sessionService.getSession(sessionId);
     InteractionMode mode = session.getCurrentMode();
+    log.debug("Session found with mode: {}", mode);
 
     // Save user message
     saveMessage(session, MessageRole.USER, userMessage, mode);
+    log.debug("User message saved");
 
     // Retrieve relevant context via RAG
+    log.debug("Starting hybrid search for context...");
     List<DocumentChunk> relevantChunks = hybridSearchService.search(sessionId, userMessage, mode);
+    log.debug("Hybrid search returned {} chunks", relevantChunks.size());
     String context = hybridSearchService.buildContext(relevantChunks);
+    log.debug("Built context with length: {}", context.length());
 
     // Build conversation context
     List<dev.langchain4j.data.message.ChatMessage> messages =
         buildConversationContext(session, mode, context, userMessage);
+    log.debug("Built conversation context with {} messages", messages.size());
 
     // Create sink for streaming
     Sinks.Many<StreamChunkResponse> sink = Sinks.many().unicast().onBackpressureBuffer();
     AtomicReference<StringBuilder> responseBuilder = new AtomicReference<>(new StringBuilder());
     AtomicInteger tokenCount = new AtomicInteger(0);
 
+    log.debug("Calling streamingChatModel.chat()...");
     // Stream the response using StreamingChatResponseHandler
     streamingChatModel.chat(
         messages,
         new StreamingChatResponseHandler() {
           @Override
           public void onPartialResponse(String partialResponse) {
+            log.trace("Received partial response: {}", partialResponse);
             responseBuilder.get().append(partialResponse);
             tokenCount.incrementAndGet();
-            sink.tryEmitNext(StreamChunkResponse.token(partialResponse));
+            var result = sink.tryEmitNext(StreamChunkResponse.token(partialResponse));
+            if (result.isFailure()) {
+              log.warn("Failed to emit token: {}", result);
+            }
           }
 
           @Override
           public void onCompleteResponse(ChatResponse completeResponse) {
+            log.debug("onCompleteResponse called, total tokens: {}", tokenCount.get());
             // Send citations if we have relevant chunks
             if (!relevantChunks.isEmpty()) {
+              log.debug("Sending {} citations", relevantChunks.size());
               for (DocumentChunk chunk : relevantChunks) {
                 sink.tryEmitNext(
                     StreamChunkResponse.citation(
@@ -104,8 +118,10 @@ public class ChatServiceImpl implements ChatService {
 
             // Save assistant message
             String fullResponse = responseBuilder.get().toString();
+            log.debug("Full response length: {}", fullResponse.length());
             ChatMessage assistantMsg =
                 saveMessage(session, MessageRole.ASSISTANT, fullResponse, mode);
+            log.debug("Assistant message saved with id: {}", assistantMsg.getId());
 
             // Update metrics
             meterRegistry.counter("chat.messages.generated").increment();
@@ -121,13 +137,14 @@ public class ChatServiceImpl implements ChatService {
             sink.tryEmitNext(
                 StreamChunkResponse.done(assistantMsg.getId().toString(), 0, tokenCount.get()));
             sink.tryEmitComplete();
+            log.debug("Chat stream completed successfully");
 
             sample.stop(meterRegistry.timer("chat.stream.duration"));
           }
 
           @Override
           public void onError(Throwable error) {
-            log.error("Error during chat streaming: {}", error.getMessage());
+            log.error("Error during chat streaming: {}", error.getMessage(), error);
             sink.tryEmitNext(
                 StreamChunkResponse.error(UUID.randomUUID().toString(), error.getMessage()));
             sink.tryEmitComplete();
@@ -135,6 +152,7 @@ public class ChatServiceImpl implements ChatService {
           }
         });
 
+    log.debug("streamingChatModel.chat() returned, returning flux");
     return sink.asFlux();
   }
 
@@ -152,9 +170,13 @@ public class ChatServiceImpl implements ChatService {
   @Transactional(readOnly = true)
   public List<ChatMessage> getChatHistory(UUID sessionId, int limit) {
     sessionService.getSession(sessionId); // Validate session exists
-    return chatMessageRepository.findBySessionIdOrderByCreatedAtDesc(sessionId).stream()
-        .limit(limit)
-        .toList();
+    // Get latest N messages (DESC), then reverse to display oldest-first (ASC)
+    List<ChatMessage> messages =
+        chatMessageRepository.findBySessionIdOrderByCreatedAtDesc(sessionId).stream()
+            .limit(limit)
+            .toList();
+    // Reverse to get chronological order (oldest first, newest at bottom)
+    return messages.reversed();
   }
 
   @Override

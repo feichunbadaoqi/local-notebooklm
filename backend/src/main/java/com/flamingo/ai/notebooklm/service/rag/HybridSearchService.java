@@ -40,27 +40,37 @@ public class HybridSearchService {
    * @return list of relevant document chunks
    */
   public List<DocumentChunk> search(UUID sessionId, String query, InteractionMode mode) {
+    log.debug("Starting hybrid search for session {} with query: {}", sessionId, query);
     Timer.Sample sample = Timer.start(meterRegistry);
     try {
       int topK = mode.getRetrievalCount();
       int candidateMultiplier = 2;
+      log.debug("Mode: {}, topK: {}", mode, topK);
 
       // Get query embedding
+      log.debug("Generating query embedding...");
       List<Float> queryEmbedding = embeddingService.embedText(query);
+      log.debug("Query embedding generated, size: {}", queryEmbedding.size());
       if (queryEmbedding.isEmpty()) {
         log.warn("Failed to generate query embedding, falling back to keyword search only");
         return elasticsearchIndexService.keywordSearch(sessionId, query, topK);
       }
 
       // Perform both searches in parallel conceptually (sequential here for simplicity)
+      log.debug("Performing vector search...");
       List<DocumentChunk> vectorResults =
           elasticsearchIndexService.vectorSearch(
               sessionId, queryEmbedding, topK * candidateMultiplier);
+      log.debug("Vector search returned {} results", vectorResults.size());
+
+      log.debug("Performing keyword search...");
       List<DocumentChunk> keywordResults =
           elasticsearchIndexService.keywordSearch(sessionId, query, topK * candidateMultiplier);
+      log.debug("Keyword search returned {} results", keywordResults.size());
 
       // Apply RRF fusion
       List<DocumentChunk> fusedResults = applyRrf(vectorResults, keywordResults, topK);
+      log.debug("RRF fusion returned {} results", fusedResults.size());
 
       meterRegistry.counter("rag.search.success").increment();
       meterRegistry.gauge("rag.search.results", fusedResults, List::size);

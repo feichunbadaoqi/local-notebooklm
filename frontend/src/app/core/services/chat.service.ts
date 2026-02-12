@@ -1,4 +1,4 @@
-import { Injectable, inject, signal, NgZone } from '@angular/core';
+import { Injectable, inject, signal, ApplicationRef } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable, tap, catchError, of, Subject } from 'rxjs';
 import { ChatMessage, StreamChunk, Citation } from '../models';
@@ -9,7 +9,7 @@ import { environment } from '../../../environments/environment';
 })
 export class ChatService {
   private http = inject(HttpClient);
-  private ngZone = inject(NgZone);
+  private appRef = inject(ApplicationRef);
   private apiUrl = `${environment.apiUrl}/sessions`;
 
   // Reactive state
@@ -81,6 +81,8 @@ export class ChatService {
   private streamWithFetch(url: string, message: string, sessionId: string): void {
     const controller = new AbortController();
 
+    console.log('[ChatService] Starting SSE fetch to:', url);
+
     fetch(url, {
       method: 'POST',
       headers: {
@@ -90,6 +92,7 @@ export class ChatService {
       body: JSON.stringify({ message }),
       signal: controller.signal
     }).then(async response => {
+      console.log('[ChatService] SSE response status:', response.status);
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);
       }
@@ -102,57 +105,84 @@ export class ChatService {
       const decoder = new TextDecoder();
       let buffer = '';
 
+      console.log('[ChatService] Starting to read SSE stream...');
+
       while (true) {
         const { done, value } = await reader.read();
-        if (done) break;
+        if (done) {
+          console.log('[ChatService] SSE stream ended');
+          break;
+        }
 
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split('\n');
         buffer = lines.pop() || '';
 
         for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            const data = line.slice(6);
-            if (data === '[DONE]') continue;
+          if (line.startsWith('data:')) {
+            const data = line.slice(5).trim();
+            if (data === '[DONE]') {
+              console.log('[ChatService] Received [DONE] marker');
+              continue;
+            }
 
             try {
-              const chunk: StreamChunk = JSON.parse(data);
-              this.ngZone.run(() => this.handleStreamChunk(chunk, sessionId));
-            } catch {
-              // Ignore parse errors for malformed chunks
+              console.log('[ChatService] Raw SSE data:', data);
+              const chunk = JSON.parse(data);
+              console.log('[ChatService] Parsed chunk:', chunk);
+              this.handleStreamChunk(chunk, sessionId);
+              // Force change detection in zoneless Angular
+              this.appRef.tick();
+            } catch (e) {
+              console.warn('[ChatService] Failed to parse SSE chunk:', data, e);
             }
           }
         }
       }
-    }).catch(error => {
-      this.ngZone.run(() => {
+
+      // Ensure streaming is stopped even if no 'done' event
+      if (this.streamingSignal()) {
+        console.log('[ChatService] Stream ended without done event, stopping...');
         this.streamingSignal.set(false);
-        this.errorSignal.set(error.message || 'Stream error');
-        this.streamEvents.next({
-          eventType: 'error',
-          errorMessage: error.message
-        });
+        this.appRef.tick();
+      }
+
+    }).catch(error => {
+      console.error('[ChatService] SSE error:', error);
+      this.streamingSignal.set(false);
+      this.errorSignal.set(error.message || 'Stream error');
+      this.streamEvents.next({
+        eventType: 'error',
+        errorMessage: error.message
       });
+      this.appRef.tick();
     });
   }
 
-  private handleStreamChunk(chunk: StreamChunk, sessionId: string): void {
+  private handleStreamChunk(rawChunk: any, sessionId: string): void {
+    // Parse backend format: {eventType, data: {...}} into frontend format
+    const chunk = this.parseBackendChunk(rawChunk);
+    console.log('[ChatService] handleStreamChunk:', chunk.eventType, chunk);
+
     this.streamEvents.next(chunk);
 
     switch (chunk.eventType) {
       case 'token':
         if (chunk.content) {
           this.currentStreamContentSignal.update(content => content + chunk.content);
+          console.log('[ChatService] Stream content updated, length:', this.currentStreamContentSignal().length);
         }
         break;
 
       case 'citation':
         if (chunk.citation) {
           this.currentCitationsSignal.update(citations => [...citations, chunk.citation!]);
+          console.log('[ChatService] Citation added:', chunk.citation);
         }
         break;
 
       case 'done':
+        console.log('[ChatService] Done event received, finalizing message...');
         // Add complete assistant message
         const assistantMessage: ChatMessage = {
           id: chunk.messageId || crypto.randomUUID(),
@@ -164,15 +194,56 @@ export class ChatService {
           tokenCount: chunk.totalTokens || 0,
           createdAt: new Date().toISOString()
         };
+        console.log('[ChatService] Adding assistant message:', assistantMessage.content.substring(0, 100));
         this.messagesSignal.update(messages => [...messages, assistantMessage]);
         this.streamingSignal.set(false);
         this.currentStreamContentSignal.set('');
+        console.log('[ChatService] Messages count after done:', this.messagesSignal().length);
         break;
 
       case 'error':
+        console.error('[ChatService] Error event:', chunk.errorMessage);
         this.errorSignal.set(chunk.errorMessage || 'Unknown error');
         this.streamingSignal.set(false);
         break;
+    }
+  }
+
+  /**
+   * Parse backend SSE format into frontend StreamChunk format.
+   * Backend sends: {eventType, data: {...}}
+   * Frontend expects: {eventType, content?, citation?, messageId?, ...}
+   */
+  private parseBackendChunk(raw: any): StreamChunk {
+    const eventType = raw.eventType;
+    const data = raw.data || {};
+
+    switch (eventType) {
+      case 'token':
+        return { eventType, content: data.content };
+      case 'citation':
+        return {
+          eventType,
+          citation: {
+            sourceNumber: 0,
+            fileName: data.source || '',
+            content: data.text || '',
+            chunkId: ''
+          }
+        };
+      case 'done':
+        return {
+          eventType,
+          messageId: data.messageId,
+          totalTokens: data.completionTokens || 0
+        };
+      case 'error':
+        return {
+          eventType,
+          errorMessage: data.message || 'Unknown error'
+        };
+      default:
+        return { eventType: 'error', errorMessage: `Unknown event type: ${eventType}` };
     }
   }
 

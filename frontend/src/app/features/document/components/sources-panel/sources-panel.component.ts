@@ -4,8 +4,11 @@ import { Document, DocumentStatus } from '../../../../core/models';
 @Component({
   selector: 'app-sources-panel',
   standalone: true,
+  host: {
+    class: 'flex-1 flex flex-col min-h-0'
+  },
   template: `
-    <div class="flex flex-col h-full">
+    <div class="flex flex-col flex-1 min-h-0">
       <!-- Header -->
       <div class="p-4 border-b border-border">
         <div class="flex items-center justify-between mb-3">
@@ -37,7 +40,7 @@ import { Document, DocumentStatus } from '../../../../core/models';
       </div>
 
       <!-- Document list -->
-      <div class="flex-1 overflow-y-auto p-2">
+      <div class="flex-1 overflow-y-auto p-2 min-h-0">
         @if (loading()) {
           <div class="flex items-center justify-center py-8">
             <div class="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin"></div>
@@ -72,9 +75,18 @@ import { Document, DocumentStatus } from '../../../../core/models';
                 [class.source-item-active]="selectedDocumentId() === doc.id"
                 (click)="selectDocument(doc.id)"
               >
-                <!-- Document icon -->
-                <div class="w-10 h-10 rounded-lg bg-primary-light flex items-center justify-center flex-shrink-0">
-                  <span class="text-primary font-semibold text-sm">{{ i + 1 }}</span>
+                <!-- Document icon with processing spinner -->
+                <div class="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0"
+                     [class]="doc.status === 'PROCESSING' || doc.status === 'PENDING' ? 'bg-amber-100' : 'bg-primary-light'">
+                  @if (doc.status === 'PROCESSING' || doc.status === 'PENDING') {
+                    <div class="w-5 h-5 border-2 border-amber-500 border-t-transparent rounded-full animate-spin"></div>
+                  } @else if (doc.status === 'FAILED') {
+                    <svg class="w-5 h-5 text-danger" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                    </svg>
+                  } @else {
+                    <span class="text-primary font-semibold text-sm">{{ i + 1 }}</span>
+                  }
                 </div>
 
                 <!-- Document info -->

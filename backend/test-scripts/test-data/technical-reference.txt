@@ -1,0 +1,229 @@
+# Spring Boot Technical Reference
+
+## 1. Application Configuration
+
+### 1.1 application.yaml Structure
+
+Spring Boot uses YAML configuration files for application settings:
+
+```yaml
+spring:
+  application:
+    name: my-application
+  profiles:
+    active: development
+  datasource:
+    url: jdbc:postgresql://localhost:5432/mydb
+    username: ${DB_USER}
+    password: ${DB_PASSWORD}
+```
+
+### 1.2 Environment Variables
+
+Configuration can be overridden using environment variables:
+- SPRING_DATASOURCE_URL
+- SPRING_PROFILES_ACTIVE
+- SERVER_PORT
+
+## 2. RESTful API Development
+
+### 2.1 Controller Design
+
+REST controllers handle HTTP requests:
+
+```java
+@RestController
+@RequestMapping("/api/users")
+public class UserController {
+
+    @GetMapping("/{id}")
+    public ResponseEntity<User> getUser(@PathVariable Long id) {
+        return ResponseEntity.ok(userService.findById(id));
+    }
+
+    @PostMapping
+    public ResponseEntity<User> createUser(@RequestBody UserRequest request) {
+        User created = userService.create(request);
+        return ResponseEntity.status(HttpStatus.CREATED).body(created);
+    }
+}
+```
+
+### 2.2 Request Validation
+
+Use Bean Validation annotations:
+- @NotNull - field cannot be null
+- @NotBlank - string cannot be empty or whitespace
+- @Size(min, max) - string length constraints
+- @Email - valid email format
+- @Pattern - regex pattern matching
+
+### 2.3 Exception Handling
+
+Global exception handling with @ControllerAdvice:
+
+```java
+@ControllerAdvice
+public class GlobalExceptionHandler {
+
+    @ExceptionHandler(ResourceNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleNotFound(ResourceNotFoundException ex) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+            .body(new ErrorResponse(ex.getMessage()));
+    }
+}
+```
+
+## 3. Data Access Layer
+
+### 3.1 JPA Repositories
+
+Spring Data JPA provides repository abstraction:
+
+```java
+public interface UserRepository extends JpaRepository<User, Long> {
+    Optional<User> findByEmail(String email);
+    List<User> findByStatusOrderByCreatedAtDesc(UserStatus status);
+
+    @Query("SELECT u FROM User u WHERE u.department.id = :deptId")
+    List<User> findByDepartment(@Param("deptId") Long departmentId);
+}
+```
+
+### 3.2 Entity Design
+
+JPA entities map to database tables:
+
+```java
+@Entity
+@Table(name = "users")
+public class User {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @Column(nullable = false, unique = true)
+    private String email;
+
+    @Enumerated(EnumType.STRING)
+    private UserStatus status;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "department_id")
+    private Department department;
+}
+```
+
+### 3.3 Transaction Management
+
+Use @Transactional for database operations:
+- Automatic rollback on RuntimeException
+- Propagation modes: REQUIRED, REQUIRES_NEW, NESTED
+- Isolation levels: READ_COMMITTED, REPEATABLE_READ, SERIALIZABLE
+
+## 4. Security Configuration
+
+### 4.1 Spring Security Setup
+
+Configure security filter chain:
+
+```java
+@Configuration
+@EnableWebSecurity
+public class SecurityConfig {
+
+    @Bean
+    public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+        return http
+            .csrf(csrf -> csrf.disable())
+            .authorizeHttpRequests(auth -> auth
+                .requestMatchers("/api/public/**").permitAll()
+                .requestMatchers("/api/admin/**").hasRole("ADMIN")
+                .anyRequest().authenticated()
+            )
+            .oauth2ResourceServer(oauth2 -> oauth2.jwt())
+            .build();
+    }
+}
+```
+
+### 4.2 JWT Authentication
+
+JSON Web Tokens provide stateless authentication:
+- Header: algorithm and token type
+- Payload: claims (sub, exp, roles)
+- Signature: verification hash
+
+## 5. Testing Strategies
+
+### 5.1 Unit Testing
+
+Test services in isolation with mocks:
+
+```java
+@ExtendWith(MockitoExtension.class)
+class UserServiceTest {
+    @Mock
+    private UserRepository userRepository;
+
+    @InjectMocks
+    private UserServiceImpl userService;
+
+    @Test
+    void shouldReturnUser_whenUserExists() {
+        when(userRepository.findById(1L))
+            .thenReturn(Optional.of(new User()));
+
+        assertThat(userService.findById(1L)).isNotNull();
+    }
+}
+```
+
+### 5.2 Integration Testing
+
+Test with actual Spring context:
+
+```java
+@SpringBootTest
+@AutoConfigureMockMvc
+class UserControllerIntegrationTest {
+    @Autowired
+    private MockMvc mockMvc;
+
+    @Test
+    void shouldCreateUser() throws Exception {
+        mockMvc.perform(post("/api/users")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"email\":\"test@example.com\"}"))
+            .andExpect(status().isCreated());
+    }
+}
+```
+
+## 6. Performance Optimization
+
+### 6.1 Caching
+
+Use Spring Cache abstraction:
+- @Cacheable - cache method results
+- @CacheEvict - invalidate cache entries
+- @CachePut - update cache
+
+### 6.2 Connection Pooling
+
+HikariCP configuration:
+- maximum-pool-size: max connections
+- minimum-idle: min idle connections
+- connection-timeout: wait time for connection
+- idle-timeout: max idle time before removal
+
+### 6.3 Query Optimization
+
+Optimize database queries:
+- Use projections for partial data
+- Implement pagination
+- Add appropriate indexes
+- Use batch operations for bulk updates
+
+---
+Technical reference for Spring Boot development and testing.

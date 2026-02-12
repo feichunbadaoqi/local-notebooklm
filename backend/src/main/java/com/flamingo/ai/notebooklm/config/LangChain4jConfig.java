@@ -24,8 +24,8 @@ public class LangChain4jConfig {
   @Value("${langchain4j.openai.chat-model.temperature:0.7}")
   private double temperature;
 
-  @Value("${langchain4j.openai.chat-model.max-tokens:2048}")
-  private int maxTokens;
+  @Value("${langchain4j.openai.chat-model.max-completion-tokens:2048}")
+  private int maxCompletionTokens;
 
   @Value("${langchain4j.openai.embedding-model.model-name:text-embedding-3-small}")
   private String embeddingModelName;
@@ -41,7 +41,7 @@ public class LangChain4jConfig {
         .apiKey(openAiApiKey)
         .modelName(chatModelName)
         .temperature(temperature)
-        .maxTokens(maxTokens)
+        .maxCompletionTokens(maxCompletionTokens)
         .timeout(Duration.ofSeconds(60))
         .logRequests(false)
         .logResponses(false)
@@ -56,7 +56,7 @@ public class LangChain4jConfig {
         .apiKey(openAiApiKey)
         .modelName(chatModelName)
         .temperature(temperature)
-        .maxTokens(maxTokens)
+        .maxCompletionTokens(maxCompletionTokens)
         .timeout(Duration.ofSeconds(120))
         .logRequests(false)
         .logResponses(false)
