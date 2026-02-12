@@ -24,10 +24,9 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
 import org.testcontainers.elasticsearch.ElasticsearchContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -40,19 +39,19 @@ import org.testcontainers.junit.jupiter.Testcontainers;
  * Session B are only searchable from Session B. Vector search, keyword search, and hybrid search
  * all respect session boundaries.
  */
-@SpringBootTest
+@ExtendWith(MockitoExtension.class)
 @Testcontainers
 @DisplayName("Session Isolation Integration Test")
 class SessionIsolationIntegrationTest {
 
   @Container
-  private static final ElasticsearchContainer elasticsearchContainer =
+  private static final ElasticsearchContainer ELASTICSEARCH_CONTAINER =
       new ElasticsearchContainer("docker.elastic.co/elasticsearch/elasticsearch:8.12.2")
           .withEnv("xpack.security.enabled", "false")
           .withEnv("xpack.security.http.ssl.enabled", "false")
           .withStartupTimeout(Duration.ofMinutes(2));
 
-  @MockitoBean private EmbeddingModel embeddingModel;
+  @Mock private EmbeddingModel embeddingModel;
 
   private ElasticsearchClient elasticsearchClient;
   private ElasticsearchIndexService indexService;
@@ -67,26 +66,22 @@ class SessionIsolationIntegrationTest {
   private UUID documentA2;
   private UUID documentB1;
 
-  @DynamicPropertySource
-  static void setElasticsearchProperties(DynamicPropertyRegistry registry) {
-    registry.add("app.elasticsearch.host", elasticsearchContainer::getHost);
-    registry.add("app.elasticsearch.port", () -> elasticsearchContainer.getMappedPort(9200));
-  }
-
   @BeforeEach
   void setUp() throws Exception {
     RestClient restClient =
         RestClient.builder(
                 new HttpHost(
-                    elasticsearchContainer.getHost(),
-                    elasticsearchContainer.getMappedPort(9200),
+                    ELASTICSEARCH_CONTAINER.getHost(),
+                    ELASTICSEARCH_CONTAINER.getMappedPort(9200),
                     "http"))
             .build();
     RestClientTransport transport = new RestClientTransport(restClient, new JacksonJsonpMapper());
     elasticsearchClient = new ElasticsearchClient(transport);
 
     meterRegistry = new SimpleMeterRegistry();
-    indexService = new ElasticsearchIndexService(elasticsearchClient, meterRegistry);
+    indexService =
+        new ElasticsearchIndexService(
+            elasticsearchClient, meterRegistry, "notebooklm-chunks", 3072);
     embeddingService = new EmbeddingService(embeddingModel, meterRegistry);
 
     RagConfig ragConfig = new RagConfig();

@@ -29,7 +29,11 @@
       "Bash(docker ps:*)",
       "Bash(docker compose:*)",
       "Bash(./gradlew check:*)",
-      "Bash(cd:*)"
+      "Bash(cd:*)",
+      "Bash(./gradlew bootRun)",
+      "Bash(timeout /t 45)",
+      "Bash(pwsh -File api-integration-test.ps1)",
+      "Bash(powershell.exe:*)"
     ]
   }
 }

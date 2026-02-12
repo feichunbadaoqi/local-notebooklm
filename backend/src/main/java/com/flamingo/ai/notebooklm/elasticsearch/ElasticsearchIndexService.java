@@ -21,14 +21,12 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 /** Service for managing document chunks in Elasticsearch with vector and keyword search. */
 @Service
-@RequiredArgsConstructor
 @Slf4j
 public class ElasticsearchIndexService {
 
@@ -40,6 +38,26 @@ public class ElasticsearchIndexService {
 
   @Value("${app.elasticsearch.vector-dimensions:3072}")
   private int vectorDimensions;
+
+  /** Production constructor for Spring autowiring. */
+  @org.springframework.beans.factory.annotation.Autowired
+  public ElasticsearchIndexService(
+      ElasticsearchClient elasticsearchClient, MeterRegistry meterRegistry) {
+    this.elasticsearchClient = elasticsearchClient;
+    this.meterRegistry = meterRegistry;
+  }
+
+  /** Constructor for testing - allows setting index name and vector dimensions. */
+  public ElasticsearchIndexService(
+      ElasticsearchClient elasticsearchClient,
+      MeterRegistry meterRegistry,
+      String indexName,
+      int vectorDimensions) {
+    this.elasticsearchClient = elasticsearchClient;
+    this.meterRegistry = meterRegistry;
+    this.indexName = indexName;
+    this.vectorDimensions = vectorDimensions;
+  }
 
   @PostConstruct
   public void initIndex() {
@@ -61,6 +79,7 @@ public class ElasticsearchIndexService {
 
   private void createIndex() throws IOException {
     Map<String, Property> properties = new HashMap<>();
+    // IMPORTANT: documentId and sessionId MUST be keyword type for exact matching
     properties.put("documentId", Property.of(p -> p.keyword(k -> k)));
     properties.put("sessionId", Property.of(p -> p.keyword(k -> k)));
     properties.put("fileName", Property.of(p -> p.text(TextProperty.of(t -> t))));
@@ -80,8 +99,8 @@ public class ElasticsearchIndexService {
         "documentTitle", Property.of(p -> p.text(TextProperty.of(t -> t.analyzer("standard")))));
     properties.put(
         "sectionTitle", Property.of(p -> p.text(TextProperty.of(t -> t.analyzer("standard")))));
-    properties.put(
-        "keywords", Property.of(p -> p.text(TextProperty.of(t -> t.analyzer("standard")))));
+    // keywords is an array of tags (["kusto", "gpu", "oversubscription"]), not free-form text
+    properties.put("keywords", Property.of(p -> p.keyword(k -> k)));
     properties.put(
         "enrichedContent", Property.of(p -> p.text(TextProperty.of(t -> t.analyzer("standard")))));
 
@@ -118,7 +137,8 @@ public class ElasticsearchIndexService {
           document.put("sectionTitle", chunk.getSectionTitle());
         }
         if (chunk.getKeywords() != null && !chunk.getKeywords().isEmpty()) {
-          document.put("keywords", String.join(", ", chunk.getKeywords()));
+          document.put(
+              "keywords", chunk.getKeywords()); // Store as array, not comma-separated string
         }
         if (chunk.getEnrichedContent() != null) {
           document.put("enrichedContent", chunk.getEnrichedContent());
@@ -377,8 +397,9 @@ public class ElasticsearchIndexService {
           builder.sectionTitle((String) source.get("sectionTitle"));
         }
         if (source.get("keywords") != null) {
-          String keywords = (String) source.get("keywords");
-          builder.keywords(List.of(keywords.split(",\\s*")));
+          @SuppressWarnings("unchecked")
+          List<String> keywords = (List<String>) source.get("keywords");
+          builder.keywords(keywords);
         }
         if (source.get("enrichedContent") != null) {
           builder.enrichedContent((String) source.get("enrichedContent"));
