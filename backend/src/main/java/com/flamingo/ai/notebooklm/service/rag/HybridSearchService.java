@@ -17,7 +17,7 @@ import org.springframework.stereotype.Service;
 
 /**
  * Hybrid search service combining vector search and BM25 keyword search using Reciprocal Rank
- * Fusion (RRF).
+ * Fusion (RRF), with diversity-aware reranking for multi-document support.
  */
 @Service
 @RequiredArgsConstructor
@@ -26,6 +26,7 @@ public class HybridSearchService {
 
   private final ElasticsearchIndexService elasticsearchIndexService;
   private final EmbeddingService embeddingService;
+  private final DiversityReranker diversityReranker;
   private final RagConfig ragConfig;
   private final MeterRegistry meterRegistry;
 
@@ -44,8 +45,8 @@ public class HybridSearchService {
     Timer.Sample sample = Timer.start(meterRegistry);
     try {
       int topK = mode.getRetrievalCount();
-      int candidateMultiplier = 2;
-      log.debug("Mode: {}, topK: {}", mode, topK);
+      int candidateMultiplier = ragConfig.getRetrieval().getCandidatesMultiplier();
+      log.debug("Mode: {}, topK: {}, candidateMultiplier: {}", mode, topK, candidateMultiplier);
 
       // Get query embedding
       log.debug("Generating query embedding...");
@@ -56,7 +57,7 @@ public class HybridSearchService {
         return elasticsearchIndexService.keywordSearch(sessionId, query, topK);
       }
 
-      // Perform both searches in parallel conceptually (sequential here for simplicity)
+      // Perform both searches
       log.debug("Performing vector search...");
       List<DocumentChunk> vectorResults =
           elasticsearchIndexService.vectorSearch(
@@ -68,14 +69,24 @@ public class HybridSearchService {
           elasticsearchIndexService.keywordSearch(sessionId, query, topK * candidateMultiplier);
       log.debug("Keyword search returned {} results", keywordResults.size());
 
-      // Apply RRF fusion
-      List<DocumentChunk> fusedResults = applyRrf(vectorResults, keywordResults, topK);
+      // Apply RRF fusion to combine results
+      List<DocumentChunk> fusedResults =
+          applyRrf(vectorResults, keywordResults, topK * candidateMultiplier);
       log.debug("RRF fusion returned {} results", fusedResults.size());
 
-      meterRegistry.counter("rag.search.success").increment();
-      meterRegistry.gauge("rag.search.results", fusedResults, List::size);
+      // Apply diversity reranking for multi-document support
+      List<DocumentChunk> diverseResults = diversityReranker.rerank(fusedResults, topK);
+      long uniqueDocs =
+          diverseResults.stream().map(DocumentChunk::getDocumentId).distinct().count();
+      log.debug(
+          "Diversity reranking returned {} results from {} documents",
+          diverseResults.size(),
+          uniqueDocs);
 
-      return fusedResults;
+      meterRegistry.counter("rag.search.success").increment();
+      meterRegistry.gauge("rag.search.results", diverseResults, List::size);
+
+      return diverseResults;
     } finally {
       sample.stop(meterRegistry.timer("rag.search.duration"));
     }
@@ -124,14 +135,37 @@ public class HybridSearchService {
     }
 
     StringBuilder context = new StringBuilder();
-    context.append("Relevant information from your documents:\n\n");
+    context.append("=== DOCUMENT CONTEXT (from user's uploaded files) ===\n\n");
+    context.append(
+        "The following excerpts were retrieved from the user's documents. "
+            + "Use this information ONLY if relevant to the user's question:\n\n");
 
     for (int i = 0; i < chunks.size(); i++) {
       DocumentChunk chunk = chunks.get(i);
-      context.append(String.format("[Source %d: %s]\n", i + 1, chunk.getFileName()));
+
+      // Build source header with metadata
+      StringBuilder sourceHeader = new StringBuilder();
+      sourceHeader.append(String.format("[Source %d: %s", i + 1, chunk.getFileName()));
+
+      // Include document title if different from filename
+      String docTitle = chunk.getDocumentTitle();
+      if (docTitle != null && !docTitle.isEmpty() && !docTitle.equals(chunk.getFileName())) {
+        sourceHeader.append(" - ").append(docTitle);
+      }
+
+      // Include section title if available
+      String sectionTitle = chunk.getSectionTitle();
+      if (sectionTitle != null && !sectionTitle.isEmpty()) {
+        sourceHeader.append(" > Section: ").append(sectionTitle);
+      }
+
+      sourceHeader.append("]\n");
+      context.append(sourceHeader);
       context.append(chunk.getContent());
       context.append("\n\n");
     }
+
+    context.append("=== END DOCUMENT CONTEXT ===");
 
     return context.toString();
   }

@@ -91,15 +91,23 @@ public class DocumentServiceImpl implements DocumentService {
 
     // Trigger async processing AFTER transaction commits to avoid race condition
     final UUID documentId = saved.getId();
-    TransactionSynchronizationManager.registerSynchronization(
-        new TransactionSynchronization() {
-          @Override
-          public void afterCommit() {
-            log.debug("Transaction committed, starting async processing for document: {}", documentId);
-            documentProcessingService.processDocumentAsync(
-                documentId, new ByteArrayInputStream(fileBytes));
-          }
-        });
+    if (TransactionSynchronizationManager.isSynchronizationActive()) {
+      TransactionSynchronizationManager.registerSynchronization(
+          new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+              log.debug(
+                  "Transaction committed, starting async processing for document: {}", documentId);
+              documentProcessingService.processDocumentAsync(
+                  documentId, new ByteArrayInputStream(fileBytes));
+            }
+          });
+    } else {
+      // In tests or non-transactional context, process directly
+      log.debug("No active transaction, processing document directly: {}", documentId);
+      documentProcessingService.processDocumentAsync(
+          documentId, new ByteArrayInputStream(fileBytes));
+    }
 
     log.info("Document {} uploaded with ID: {}", file.getOriginalFilename(), saved.getId());
     return saved;

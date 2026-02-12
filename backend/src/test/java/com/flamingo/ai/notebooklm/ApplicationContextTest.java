@@ -15,12 +15,12 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.context.ApplicationContext;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 /**
- * Integration test that verifies the Spring application context loads correctly. Uses @MockitoBean to
- * mock external dependencies (LLM, Elasticsearch) so the test can run without external services.
+ * Integration test that verifies the Spring application context loads correctly. Uses @MockitoBean
+ * to mock external dependencies (LLM, Elasticsearch) so the test can run without external services.
  */
 @SpringBootTest
 class ApplicationContextTest {

@@ -16,6 +16,8 @@ public class RagConfig {
   private Retrieval retrieval = new Retrieval();
   private Compaction compaction = new Compaction();
   private Memory memory = new Memory();
+  private Metadata metadata = new Metadata();
+  private Diversity diversity = new Diversity();
 
   @Getter
   @Setter
@@ -29,6 +31,7 @@ public class RagConfig {
   public static class Retrieval {
     private int topK = 6;
     private int rrfK = 60;
+    private int candidatesMultiplier = 2;
   }
 
   @Getter
@@ -47,5 +50,21 @@ public class RagConfig {
     private int maxPerSession = 50;
     private float extractionThreshold = 0.3f;
     private int contextLimit = 5;
+  }
+
+  @Getter
+  @Setter
+  public static class Metadata {
+    private boolean extractKeywords = true;
+    private int maxKeywords = 10;
+    private boolean extractSections = true;
+    private boolean enrichChunks = true;
+  }
+
+  @Getter
+  @Setter
+  public static class Diversity {
+    private boolean enabled = true;
+    private int minChunksPerDocument = 2;
   }
 }

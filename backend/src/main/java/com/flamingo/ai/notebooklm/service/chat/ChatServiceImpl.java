@@ -233,32 +233,37 @@ public class ChatServiceImpl implements ChatService {
   private String buildSystemPrompt(InteractionMode mode, String ragContext) {
     StringBuilder prompt = new StringBuilder();
 
-    prompt.append("You are a helpful AI assistant for document Q&A. ");
+    prompt.append(
+        "You are a helpful AI assistant. You can answer questions about the user's uploaded "
+            + "documents, but you can also have general conversations and answer questions on "
+            + "any topic using your general knowledge.\n\n");
 
     switch (mode) {
       case EXPLORING ->
           prompt.append(
-              "In EXPLORING mode, encourage broad discovery. Suggest related topics and connections. "
-                  + "Help the user discover new insights from their documents.");
+              "Current mode: EXPLORING - Encourage broad discovery. Suggest related topics and "
+                  + "connections. Help the user discover new insights.");
       case RESEARCH ->
           prompt.append(
-              "In RESEARCH mode, focus on precision and citations. Always cite specific sources. "
-                  + "Provide fact-focused, accurate responses with clear references.");
+              "Current mode: RESEARCH - Focus on precision and citations. When referencing "
+                  + "documents, cite specific sources. Provide fact-focused, accurate responses.");
       case LEARNING ->
           prompt.append(
-              "In LEARNING mode, use the Socratic method. Ask clarifying questions. "
+              "Current mode: LEARNING - Use the Socratic method. Ask clarifying questions. "
                   + "Build understanding progressively. Explain concepts step by step.");
-      default ->
-          prompt.append("Provide helpful, accurate responses based on the available information.");
+      default -> prompt.append("Provide helpful, accurate responses.");
     }
 
     if (!ragContext.isEmpty()) {
       prompt.append("\n\n").append(ragContext);
+      prompt.append(
+          "\n\nIMPORTANT: Only use the document context above if it is RELEVANT to the user's "
+              + "question. If the user asks about something unrelated to the documents "
+              + "(like weather, general knowledge, coding help, etc.), ignore the document "
+              + "context and respond using your general knowledge.");
+    } else {
+      prompt.append("\n\nNo document context is available. Respond using your general knowledge.");
     }
-
-    prompt.append(
-        "\n\nProvide helpful, accurate responses based on the available information. "
-            + "If you don't know something or it's not in the provided context, say so clearly.");
 
     return prompt.toString();
   }

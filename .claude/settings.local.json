@@ -27,7 +27,8 @@
       "WebFetch(domain:developers.openai.com)",
       "Bash(curl:*)",
       "Bash(docker ps:*)",
-      "Bash(docker compose:*)"
+      "Bash(docker compose:*)",
+      "Bash(./gradlew check:*)"
     ]
   }
 }

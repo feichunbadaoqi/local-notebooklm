@@ -31,6 +31,7 @@ class HybridSearchServiceTest {
 
   @Mock private ElasticsearchIndexService elasticsearchIndexService;
   @Mock private EmbeddingService embeddingService;
+  @Mock private DiversityReranker diversityReranker;
   @Mock private MeterRegistry meterRegistry;
   @Mock private Counter counter;
   @Mock private Timer timer;
@@ -45,10 +46,15 @@ class HybridSearchServiceTest {
   void setUp() {
     ragConfig = new RagConfig();
     ragConfig.setRetrieval(new RagConfig.Retrieval());
+    ragConfig.setDiversity(new RagConfig.Diversity());
 
     hybridSearchService =
         new HybridSearchService(
-            elasticsearchIndexService, embeddingService, ragConfig, meterRegistry);
+            elasticsearchIndexService,
+            embeddingService,
+            diversityReranker,
+            ragConfig,
+            meterRegistry);
 
     sessionId = UUID.randomUUID();
 
@@ -94,6 +100,8 @@ class HybridSearchServiceTest {
             .thenReturn(List.of(vectorChunk1, vectorChunk2));
         when(elasticsearchIndexService.keywordSearch(eq(sessionId), anyString(), anyInt()))
             .thenReturn(List.of(keywordChunk1, keywordChunk2));
+        when(diversityReranker.rerank(any(), anyInt()))
+            .thenAnswer(invocation -> invocation.getArgument(0));
 
         List<DocumentChunk> results =
             hybridSearchService.search(sessionId, "test query", InteractionMode.EXPLORING);
@@ -119,6 +127,7 @@ class HybridSearchServiceTest {
             .thenReturn(List.of());
         when(elasticsearchIndexService.keywordSearch(eq(sessionId), anyString(), anyInt()))
             .thenReturn(List.of());
+        when(diversityReranker.rerank(any(), anyInt())).thenReturn(List.of());
 
         List<DocumentChunk> results =
             hybridSearchService.search(sessionId, "query", InteractionMode.EXPLORING);
@@ -145,6 +154,8 @@ class HybridSearchServiceTest {
             .thenReturn(List.of(vectorChunk));
         when(elasticsearchIndexService.keywordSearch(eq(sessionId), anyString(), anyInt()))
             .thenReturn(List.of(keywordChunk));
+        when(diversityReranker.rerank(any(), anyInt()))
+            .thenAnswer(invocation -> invocation.getArgument(0));
 
         List<DocumentChunk> results =
             hybridSearchService.search(sessionId, "query", InteractionMode.EXPLORING);
@@ -170,10 +181,10 @@ class HybridSearchServiceTest {
 
       String context = hybridSearchService.buildContext(List.of(chunk1, chunk2));
 
-      assertThat(context).contains("Relevant information from your documents:");
-      assertThat(context).contains("[Source 1: doc1.pdf]");
+      assertThat(context).contains("DOCUMENT CONTEXT");
+      assertThat(context).contains("[Source 1: doc1.pdf");
       assertThat(context).contains("First chunk content");
-      assertThat(context).contains("[Source 2: doc2.pdf]");
+      assertThat(context).contains("[Source 2: doc2.pdf");
       assertThat(context).contains("Second chunk content");
     }
 

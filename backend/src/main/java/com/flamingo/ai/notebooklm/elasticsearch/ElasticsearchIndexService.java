@@ -75,6 +75,15 @@ public class ElasticsearchIndexService {
                 p.denseVector(
                     DenseVectorProperty.of(
                         d -> d.dims(vectorDimensions).index(true).similarity("cosine")))));
+    // Metadata fields for enhanced retrieval (RAG optimization Phase 1)
+    properties.put(
+        "documentTitle", Property.of(p -> p.text(TextProperty.of(t -> t.analyzer("standard")))));
+    properties.put(
+        "sectionTitle", Property.of(p -> p.text(TextProperty.of(t -> t.analyzer("standard")))));
+    properties.put(
+        "keywords", Property.of(p -> p.text(TextProperty.of(t -> t.analyzer("standard")))));
+    properties.put(
+        "enrichedContent", Property.of(p -> p.text(TextProperty.of(t -> t.analyzer("standard")))));
 
     CreateIndexRequest request =
         CreateIndexRequest.of(c -> c.index(indexName).mappings(m -> m.properties(properties)));
@@ -84,7 +93,8 @@ public class ElasticsearchIndexService {
 
   @CircuitBreaker(name = "elasticsearch", fallbackMethod = "indexChunksFallback")
   public void indexChunks(List<DocumentChunk> chunks) {
-    log.info("indexChunks called with {} chunks for session {}",
+    log.info(
+        "indexChunks called with {} chunks for session {}",
         chunks.size(),
         chunks.isEmpty() ? "unknown" : chunks.get(0).getSessionId());
     Timer.Sample sample = Timer.start(meterRegistry);
@@ -100,8 +110,22 @@ public class ElasticsearchIndexService {
         document.put("content", chunk.getContent());
         document.put("tokenCount", chunk.getTokenCount());
         document.put("embedding", chunk.getEmbedding());
+        // Metadata fields for enhanced retrieval
+        if (chunk.getDocumentTitle() != null) {
+          document.put("documentTitle", chunk.getDocumentTitle());
+        }
+        if (chunk.getSectionTitle() != null) {
+          document.put("sectionTitle", chunk.getSectionTitle());
+        }
+        if (chunk.getKeywords() != null && !chunk.getKeywords().isEmpty()) {
+          document.put("keywords", String.join(", ", chunk.getKeywords()));
+        }
+        if (chunk.getEnrichedContent() != null) {
+          document.put("enrichedContent", chunk.getEnrichedContent());
+        }
 
-        log.debug("Indexing chunk {}: file={}, contentLength={}, embeddingSize={}",
+        log.debug(
+            "Indexing chunk {}: file={}, contentLength={}, embeddingSize={}",
             chunk.getId(),
             chunk.getFileName(),
             chunk.getContent().length(),
@@ -116,11 +140,14 @@ public class ElasticsearchIndexService {
 
       if (response.errors()) {
         log.error("Bulk indexing had errors: {}", response.toString());
-        response.items().forEach(item -> {
-          if (item.error() != null) {
-            log.error("Index error for {}: {}", item.id(), item.error().reason());
-          }
-        });
+        response
+            .items()
+            .forEach(
+                item -> {
+                  if (item.error() != null) {
+                    log.error("Index error for {}: {}", item.id(), item.error().reason());
+                  }
+                });
         meterRegistry.counter("elasticsearch.index.errors").increment();
       } else {
         log.info("Successfully indexed {} chunks to Elasticsearch", chunks.size());
@@ -144,8 +171,11 @@ public class ElasticsearchIndexService {
 
   @CircuitBreaker(name = "elasticsearch", fallbackMethod = "vectorSearchFallback")
   public List<DocumentChunk> vectorSearch(UUID sessionId, List<Float> queryEmbedding, int topK) {
-    log.debug("vectorSearch called for session {}, topK={}, embedding size={}",
-        sessionId, topK, queryEmbedding.size());
+    log.debug(
+        "vectorSearch called for session {}, topK={}, embedding size={}",
+        sessionId,
+        topK,
+        queryEmbedding.size());
     Timer.Sample sample = Timer.start(meterRegistry);
     try {
       // Use knn search at the request level with filter
@@ -170,14 +200,19 @@ public class ElasticsearchIndexService {
       log.debug("Executing vector search on index: {}", indexName);
       SearchResponse<Map> response = elasticsearchClient.search(request, Map.class);
       List<DocumentChunk> results = mapHitsToChunks(response.hits().hits());
-      log.debug("Vector search returned {} results (total hits: {})",
+      log.debug(
+          "Vector search returned {} results (total hits: {})",
           results.size(),
           response.hits().total() != null ? response.hits().total().value() : "unknown");
       if (!results.isEmpty()) {
-        log.debug("Top result: file={}, chunkIndex={}, contentPreview={}",
+        log.debug(
+            "Top result: file={}, chunkIndex={}, contentPreview={}",
             results.get(0).getFileName(),
             results.get(0).getChunkIndex(),
-            results.get(0).getContent().substring(0, Math.min(100, results.get(0).getContent().length())));
+            results
+                .get(0)
+                .getContent()
+                .substring(0, Math.min(100, results.get(0).getContent().length())));
       }
       return results;
     } catch (IOException e) {
@@ -197,8 +232,7 @@ public class ElasticsearchIndexService {
 
   @CircuitBreaker(name = "elasticsearch", fallbackMethod = "keywordSearchFallback")
   public List<DocumentChunk> keywordSearch(UUID sessionId, String query, int topK) {
-    log.debug("keywordSearch called for session {}, query='{}', topK={}",
-        sessionId, query, topK);
+    log.debug("keywordSearch called for session {}, query='{}', topK={}", sessionId, query, topK);
     Timer.Sample sample = Timer.start(meterRegistry);
     try {
       SearchRequest request =
@@ -223,14 +257,19 @@ public class ElasticsearchIndexService {
       log.debug("Executing keyword search on index: {}", indexName);
       SearchResponse<Map> response = elasticsearchClient.search(request, Map.class);
       List<DocumentChunk> results = mapHitsToChunks(response.hits().hits());
-      log.debug("Keyword search returned {} results (total hits: {})",
+      log.debug(
+          "Keyword search returned {} results (total hits: {})",
           results.size(),
           response.hits().total() != null ? response.hits().total().value() : "unknown");
       if (!results.isEmpty()) {
-        log.debug("Top keyword result: file={}, chunkIndex={}, contentPreview={}",
+        log.debug(
+            "Top keyword result: file={}, chunkIndex={}, contentPreview={}",
             results.get(0).getFileName(),
             results.get(0).getChunkIndex(),
-            results.get(0).getContent().substring(0, Math.min(100, results.get(0).getContent().length())));
+            results
+                .get(0)
+                .getContent()
+                .substring(0, Math.min(100, results.get(0).getContent().length())));
       }
       return results;
     } catch (IOException e) {
@@ -284,7 +323,7 @@ public class ElasticsearchIndexService {
     for (Hit<Map> hit : hits) {
       Map<String, Object> source = hit.source();
       if (source != null) {
-        chunks.add(
+        DocumentChunk.DocumentChunkBuilder builder =
             DocumentChunk.builder()
                 .id(hit.id())
                 .documentId(UUID.fromString((String) source.get("documentId")))
@@ -292,8 +331,29 @@ public class ElasticsearchIndexService {
                 .fileName((String) source.get("fileName"))
                 .chunkIndex((Integer) source.get("chunkIndex"))
                 .content((String) source.get("content"))
-                .tokenCount((Integer) source.get("tokenCount"))
-                .build());
+                .tokenCount((Integer) source.get("tokenCount"));
+
+        // Capture relevance score from search results
+        if (hit.score() != null) {
+          builder.relevanceScore(hit.score());
+        }
+
+        // Include metadata fields if present
+        if (source.get("documentTitle") != null) {
+          builder.documentTitle((String) source.get("documentTitle"));
+        }
+        if (source.get("sectionTitle") != null) {
+          builder.sectionTitle((String) source.get("sectionTitle"));
+        }
+        if (source.get("keywords") != null) {
+          String keywords = (String) source.get("keywords");
+          builder.keywords(List.of(keywords.split(",\\s*")));
+        }
+        if (source.get("enrichedContent") != null) {
+          builder.enrichedContent((String) source.get("enrichedContent"));
+        }
+
+        chunks.add(builder.build());
       }
     }
     return chunks;

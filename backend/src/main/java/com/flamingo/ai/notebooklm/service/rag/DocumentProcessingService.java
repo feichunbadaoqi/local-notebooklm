@@ -31,6 +31,7 @@ public class DocumentProcessingService {
   private final DocumentRepository documentRepository;
   private final ElasticsearchIndexService elasticsearchIndexService;
   private final EmbeddingService embeddingService;
+  private final DocumentMetadataExtractor metadataExtractor;
   private final RagConfig ragConfig;
   private final MeterRegistry meterRegistry;
 
@@ -64,18 +65,42 @@ public class DocumentProcessingService {
       List<String> chunks = chunkContent(content);
       log.info("Document {} split into {} chunks", documentId, chunks.size());
 
-      // Generate embeddings for all chunks
-      log.debug("Generating embeddings for {} chunks...", chunks.size());
-      List<List<Float>> embeddings = embeddingService.embedTexts(chunks);
-      log.debug("Generated {} embeddings, first embedding size: {}",
-          embeddings.size(),
-          embeddings.isEmpty() ? 0 : embeddings.get(0).size());
+      // Extract document metadata
+      String documentTitle = metadataExtractor.extractTitle(content, document.getFileName());
+      List<String> documentKeywords =
+          ragConfig.getMetadata().isExtractKeywords()
+              ? metadataExtractor.extractKeywords(content)
+              : List.of();
+      log.debug("Extracted metadata - title: {}, keywords: {}", documentTitle, documentKeywords);
 
-      // Create document chunks with embeddings
+      // Build document chunks with metadata
       List<DocumentChunk> documentChunks = new ArrayList<>();
+      List<String> textsToEmbed = new ArrayList<>();
+      int charOffset = 0;
+
       for (int i = 0; i < chunks.size(); i++) {
         String chunkContent = chunks.get(i);
-        List<Float> embedding = i < embeddings.size() ? embeddings.get(i) : List.of();
+
+        // Find the section this chunk belongs to
+        String sectionTitle =
+            ragConfig.getMetadata().isExtractSections()
+                ? metadataExtractor.findChunkSection(content, charOffset)
+                : null;
+
+        // Extract chunk-specific keywords
+        List<String> chunkKeywords =
+            ragConfig.getMetadata().isExtractKeywords()
+                ? metadataExtractor.extractKeywords(chunkContent, 5)
+                : List.of();
+
+        // Build enriched content for embedding
+        String enrichedContent =
+            ragConfig.getMetadata().isEnrichChunks()
+                ? metadataExtractor.buildEnrichedContent(
+                    chunkContent, documentTitle, sectionTitle, chunkKeywords)
+                : chunkContent;
+
+        textsToEmbed.add(enrichedContent);
 
         documentChunks.add(
             DocumentChunk.builder()
@@ -85,9 +110,28 @@ public class DocumentProcessingService {
                 .fileName(document.getFileName())
                 .chunkIndex(i)
                 .content(chunkContent)
-                .embedding(embedding)
+                .documentTitle(documentTitle)
+                .sectionTitle(sectionTitle)
+                .keywords(chunkKeywords)
+                .enrichedContent(enrichedContent)
                 .tokenCount(estimateTokenCount(chunkContent))
                 .build());
+
+        charOffset += chunkContent.length();
+      }
+
+      // Generate embeddings for enriched content (or raw content if not enriched)
+      log.debug("Generating embeddings for {} chunks...", textsToEmbed.size());
+      List<List<Float>> embeddings = embeddingService.embedTexts(textsToEmbed);
+      log.debug(
+          "Generated {} embeddings, first embedding size: {}",
+          embeddings.size(),
+          embeddings.isEmpty() ? 0 : embeddings.get(0).size());
+
+      // Attach embeddings to chunks
+      for (int i = 0; i < documentChunks.size(); i++) {
+        List<Float> embedding = i < embeddings.size() ? embeddings.get(i) : List.of();
+        documentChunks.get(i).setEmbedding(embedding);
       }
 
       // Index chunks in Elasticsearch
@@ -151,10 +195,7 @@ public class DocumentProcessingService {
           throw e;
         }
         log.warn(
-            "SQLite lock contention on document {}, retry {}/{}",
-            documentId,
-            attempt,
-            MAX_RETRIES);
+            "SQLite lock contention on document {}, retry {}/{}", documentId, attempt, MAX_RETRIES);
         try {
           Thread.sleep(RETRY_DELAY_MS * attempt); // Exponential backoff
         } catch (InterruptedException ie) {
