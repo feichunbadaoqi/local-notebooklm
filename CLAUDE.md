@@ -16,6 +16,38 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Detailed implementation plan:** See `docs/IMPLEMENTATION_PLAN.md`
 
+## Development Environment
+
+**IMPORTANT: This project is developed on Windows with PowerShell.**
+
+### Shell Commands
+- Always use PowerShell-compatible syntax
+- Use `Get-Content` instead of `cat`
+- Use `Remove-Item` instead of `rm`
+- Use semicolons (`;`) for command chaining, not `&&`
+- Use backticks (`` ` ``) for line continuation, not backslashes (`\`)
+- File paths: Use backslashes or forward slashes (both work in PowerShell)
+- Use `powershell.exe` or `pwsh` for running .ps1 scripts, not `bash`
+
+### Time/Sleep Commands
+- Use `Start-Sleep -Seconds 30` instead of `sleep 30`
+- For timeouts in scripts, use PowerShell's timeout mechanisms
+
+### Examples:
+```powershell
+# PowerShell (CORRECT for this project)
+Get-Content file.txt | Select-Object -First 10
+Start-Sleep -Seconds 5
+Remove-Item -Recurse -Force ./temp
+powershell.exe -File script.ps1
+
+# Bash (WRONG for this project)
+cat file.txt | head -10
+sleep 5
+rm -rf ./temp
+bash script.sh
+```
+
 ## Common Commands
 
 ### Frontend (`frontend/` directory)
