@@ -20,7 +20,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 /** REST controller for document management. */
 @RestController
-@RequestMapping
+@RequestMapping("/api")
 @RequiredArgsConstructor
 public class DocumentController {
 

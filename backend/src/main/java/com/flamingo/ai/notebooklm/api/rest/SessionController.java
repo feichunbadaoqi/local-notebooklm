@@ -23,7 +23,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 /** REST controller for session management. */
 @RestController
-@RequestMapping("/sessions")
+@RequestMapping("/api/sessions")
 @RequiredArgsConstructor
 public class SessionController {
 

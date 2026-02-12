@@ -8,7 +8,18 @@
       "Bash(./gradlew compileJava:*)",
       "Bash(git add:*)",
       "Bash(git commit:*)",
-      "WebFetch(domain:central.sonatype.com)"
+      "WebFetch(domain:central.sonatype.com)",
+      "Bash(./gradlew test:*)",
+      "Bash(./gradlew clean:*)",
+      "Bash(dir:*)",
+      "Bash(tree:*)",
+      "Bash(npm install:*)",
+      "Bash(npx tailwindcss init)",
+      "Bash(cmd /c \"cd /d E:\\\\workspaces\\\\aicoderpg\\\\notebooklm\\\\frontend && npm install -D tailwindcss postcss autoprefixer\")",
+      "Bash(./node_modules/.bin/tailwindcss:*)",
+      "Bash(npm run build:*)",
+      "Skill(commit-commands:commit)",
+      "Bash(grep:*)"
     ]
   }
 }
