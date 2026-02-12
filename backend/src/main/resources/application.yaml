@@ -4,11 +4,14 @@ spring:
 
   # ============ SQLite Database ============
   datasource:
-    url: jdbc:sqlite:data/notebooklm.db
+    # Enable WAL mode for better concurrency (multiple readers, single writer)
+    url: jdbc:sqlite:data/notebooklm.db?journal_mode=WAL&busy_timeout=30000
     driver-class-name: org.sqlite.JDBC
     hikari:
-      maximum-pool-size: 1  # SQLite only supports single connection
+      maximum-pool-size: 3  # WAL mode allows concurrent reads
+      minimum-idle: 1
       connection-timeout: 30000
+      idle-timeout: 60000
 
   jpa:
     database-platform: org.hibernate.community.dialect.SQLiteDialect
