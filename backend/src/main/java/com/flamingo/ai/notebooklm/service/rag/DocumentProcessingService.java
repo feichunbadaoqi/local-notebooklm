@@ -177,11 +177,14 @@ public class DocumentProcessingService {
       for (int i = 0; i < Math.min(3, validChunks.size()); i++) {
         DocumentChunk chunk = validChunks.get(i);
         log.info(
-            "Sample chunk {}: id={}, sessionId={}, contentPreview={}",
+            "Sample chunk {}: id={}, sessionId={}, documentId={}",
             i,
             chunk.getId(),
             chunk.getSessionId(),
-            chunk.getContent().substring(0, Math.min(150, chunk.getContent().length())));
+            chunk.getDocumentId());
+        log.info("===== CHUNK {} FULL CONTENT START =====", i);
+        log.info("{}", chunk.getContent());
+        log.info("===== CHUNK {} FULL CONTENT END =====", i);
       }
       elasticsearchIndexService.indexChunks(validChunks);
       log.info("Elasticsearch indexing complete for document {}", documentId);

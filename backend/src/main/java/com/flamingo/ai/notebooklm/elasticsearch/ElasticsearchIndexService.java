@@ -124,7 +124,7 @@ public class ElasticsearchIndexService {
           document.put("enrichedContent", chunk.getEnrichedContent());
         }
 
-        log.debug(
+        log.info(
             "Indexing chunk {}: sessionId={}, documentId={}, file={}, contentLength={}, embeddingSize={}",
             chunk.getId(),
             chunk.getSessionId(),
@@ -132,9 +132,9 @@ public class ElasticsearchIndexService {
             chunk.getFileName(),
             chunk.getContent().length(),
             chunk.getEmbedding() != null ? chunk.getEmbedding().size() : 0);
-        log.debug(
-            "Chunk content preview: {}",
-            chunk.getContent().substring(0, Math.min(200, chunk.getContent().length())));
+        log.info("===== FULL CHUNK CONTENT START =====");
+        log.info("{}", chunk.getContent());
+        log.info("===== FULL CHUNK CONTENT END =====");
 
         bulkBuilder.operations(
             op -> op.index(idx -> idx.index(indexName).id(chunk.getId()).document(document)));
@@ -215,16 +215,20 @@ public class ElasticsearchIndexService {
           results.size(),
           response.hits().total() != null ? response.hits().total().value() : "unknown");
       if (!results.isEmpty()) {
-        log.info(
-            "Top result: sessionId={}, documentId={}, file={}, chunkIndex={}, contentPreview={}",
-            results.get(0).getSessionId(),
-            results.get(0).getDocumentId(),
-            results.get(0).getFileName(),
-            results.get(0).getChunkIndex(),
-            results
-                .get(0)
-                .getContent()
-                .substring(0, Math.min(100, results.get(0).getContent().length())));
+        for (int i = 0; i < Math.min(3, results.size()); i++) {
+          DocumentChunk result = results.get(i);
+          log.info(
+              "Result {}: sessionId={}, documentId={}, file={}, chunkIndex={}, score={}",
+              i,
+              result.getSessionId(),
+              result.getDocumentId(),
+              result.getFileName(),
+              result.getChunkIndex(),
+              result.getRelevanceScore());
+          log.info("===== RETRIEVED CHUNK {} FULL CONTENT START =====", i);
+          log.info("{}", result.getContent());
+          log.info("===== RETRIEVED CHUNK {} FULL CONTENT END =====", i);
+        }
       } else {
         log.warn("Vector search returned NO RESULTS for session {}!", sessionId);
       }
@@ -279,16 +283,20 @@ public class ElasticsearchIndexService {
           results.size(),
           response.hits().total() != null ? response.hits().total().value() : "unknown");
       if (!results.isEmpty()) {
-        log.info(
-            "Top keyword result: sessionId={}, documentId={}, file={}, chunkIndex={}, contentPreview={}",
-            results.get(0).getSessionId(),
-            results.get(0).getDocumentId(),
-            results.get(0).getFileName(),
-            results.get(0).getChunkIndex(),
-            results
-                .get(0)
-                .getContent()
-                .substring(0, Math.min(100, results.get(0).getContent().length())));
+        for (int i = 0; i < Math.min(3, results.size()); i++) {
+          DocumentChunk result = results.get(i);
+          log.info(
+              "Result {}: sessionId={}, documentId={}, file={}, chunkIndex={}, score={}",
+              i,
+              result.getSessionId(),
+              result.getDocumentId(),
+              result.getFileName(),
+              result.getChunkIndex(),
+              result.getRelevanceScore());
+          log.info("===== RETRIEVED CHUNK {} FULL CONTENT START =====", i);
+          log.info("{}", result.getContent());
+          log.info("===== RETRIEVED CHUNK {} FULL CONTENT END =====", i);
+        }
       } else {
         log.warn(
             "Keyword search returned NO RESULTS for session {} and query '{}'!", sessionId, query);
