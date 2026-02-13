@@ -47,13 +47,14 @@ public class DocumentController {
   }
 
   /** Gets a document by ID. */
-  @GetMapping("/documents/{documentId}")
-  public ResponseEntity<DocumentResponse> getDocument(@PathVariable UUID documentId) {
+  @GetMapping("/sessions/{sessionId}/documents/{documentId}")
+  public ResponseEntity<DocumentResponse> getDocument(
+      @PathVariable UUID sessionId, @PathVariable UUID documentId) {
     Document document = documentService.getDocument(documentId);
     return ResponseEntity.ok(DocumentResponse.fromEntity(document));
   }
 
-  /** Gets the processing status of a document. */
+  /** Gets the processing status of a document (non-nested for polling efficiency). */
   @GetMapping("/documents/{documentId}/status")
   public ResponseEntity<DocumentResponse> getDocumentStatus(@PathVariable UUID documentId) {
     Document document = documentService.getDocumentStatus(documentId);
@@ -61,8 +62,9 @@ public class DocumentController {
   }
 
   /** Deletes a document. */
-  @DeleteMapping("/documents/{documentId}")
-  public ResponseEntity<Void> deleteDocument(@PathVariable UUID documentId) {
+  @DeleteMapping("/sessions/{sessionId}/documents/{documentId}")
+  public ResponseEntity<Void> deleteDocument(
+      @PathVariable UUID sessionId, @PathVariable UUID documentId) {
     documentService.deleteDocument(documentId);
     return ResponseEntity.noContent().build();
   }

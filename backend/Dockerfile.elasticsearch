@@ -1,0 +1,8 @@
+# Custom Elasticsearch image with SmartCN plugin for Chinese language support
+FROM docker.elastic.co/elasticsearch/elasticsearch:8.12.0
+
+# Install analysis-smartcn plugin for Chinese/English text analysis
+RUN bin/elasticsearch-plugin install --batch analysis-smartcn
+
+# Verify installation
+RUN bin/elasticsearch-plugin list

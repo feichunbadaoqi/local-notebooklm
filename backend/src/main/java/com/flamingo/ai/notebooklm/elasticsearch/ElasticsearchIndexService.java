@@ -39,6 +39,9 @@ public class ElasticsearchIndexService {
   @Value("${app.elasticsearch.vector-dimensions:3072}")
   private int vectorDimensions;
 
+  @Value("${app.elasticsearch.text-analyzer:standard}")
+  private String textAnalyzer;
+
   /** Production constructor for Spring autowiring. */
   @org.springframework.beans.factory.annotation.Autowired
   public ElasticsearchIndexService(
@@ -57,6 +60,7 @@ public class ElasticsearchIndexService {
     this.meterRegistry = meterRegistry;
     this.indexName = indexName;
     this.vectorDimensions = vectorDimensions;
+    this.textAnalyzer = "standard"; // Default for tests
   }
 
   @PostConstruct
@@ -78,6 +82,11 @@ public class ElasticsearchIndexService {
   }
 
   private void createIndex() throws IOException {
+    log.info("Creating index '{}' with text analyzer: {}", indexName, textAnalyzer);
+    if (!"standard".equals(textAnalyzer) && !"smartcn".equals(textAnalyzer)) {
+      log.warn("Using custom analyzer '{}'. Ensure it's installed in Elasticsearch.", textAnalyzer);
+    }
+
     Map<String, Property> properties = new HashMap<>();
     // IMPORTANT: documentId and sessionId MUST be keyword type for exact matching
     properties.put("documentId", Property.of(p -> p.keyword(k -> k)));
@@ -85,7 +94,7 @@ public class ElasticsearchIndexService {
     properties.put("fileName", Property.of(p -> p.text(TextProperty.of(t -> t))));
     properties.put("chunkIndex", Property.of(p -> p.integer(i -> i)));
     properties.put(
-        "content", Property.of(p -> p.text(TextProperty.of(t -> t.analyzer("standard")))));
+        "content", Property.of(p -> p.text(TextProperty.of(t -> t.analyzer(textAnalyzer)))));
     properties.put("tokenCount", Property.of(p -> p.integer(i -> i)));
     properties.put(
         "embedding",
@@ -96,13 +105,14 @@ public class ElasticsearchIndexService {
                         d -> d.dims(vectorDimensions).index(true).similarity("cosine")))));
     // Metadata fields for enhanced retrieval (RAG optimization Phase 1)
     properties.put(
-        "documentTitle", Property.of(p -> p.text(TextProperty.of(t -> t.analyzer("standard")))));
+        "documentTitle", Property.of(p -> p.text(TextProperty.of(t -> t.analyzer(textAnalyzer)))));
     properties.put(
-        "sectionTitle", Property.of(p -> p.text(TextProperty.of(t -> t.analyzer("standard")))));
+        "sectionTitle", Property.of(p -> p.text(TextProperty.of(t -> t.analyzer(textAnalyzer)))));
     // keywords is an array of tags (["kusto", "gpu", "oversubscription"]), not free-form text
     properties.put("keywords", Property.of(p -> p.keyword(k -> k)));
     properties.put(
-        "enrichedContent", Property.of(p -> p.text(TextProperty.of(t -> t.analyzer("standard")))));
+        "enrichedContent",
+        Property.of(p -> p.text(TextProperty.of(t -> t.analyzer(textAnalyzer)))));
 
     CreateIndexRequest request =
         CreateIndexRequest.of(c -> c.index(indexName).mappings(m -> m.properties(properties)));

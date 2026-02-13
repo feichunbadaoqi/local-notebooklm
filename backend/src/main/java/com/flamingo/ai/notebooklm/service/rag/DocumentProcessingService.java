@@ -276,8 +276,10 @@ public class DocumentProcessingService {
     List<String> chunks = new ArrayList<>();
     int chunkSize = ragConfig.getChunking().getSize();
     int overlap = ragConfig.getChunking().getOverlap();
-    // Hard limit to stay within embedding token limit (conservative: 2.5 chars/token)
-    int maxCharsPerChunk = 15000; // ~6000 tokens, leaves room for metadata enrichment
+    // Hard limit to stay within embedding token limit
+    // VERY conservative for dense CJK: 1.0 chars/token, target ~3500 tokens, leave room for
+    // enrichment
+    int maxCharsPerChunk = 3500; // ~3500 tokens raw, enrichment adds ~500, total ~4000 < 5000 limit
 
     // Split by paragraphs first for better semantic boundaries
     String[] paragraphs = content.split("\\n\\n+");

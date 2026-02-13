@@ -47,6 +47,19 @@ elasticsearch:
   index:
     chunks: document_chunks
 
+# ============ Application-Specific Elasticsearch Settings ============
+app:
+  elasticsearch:
+    index-name: notebooklm-chunks
+    vector-dimensions: 3072
+    # Text analyzer for multilingual support
+    # Options:
+    #   - standard: English only (default)
+    #   - smartcn: Chinese + English (requires analysis-smartcn plugin)
+    #   - ik_smart / ik_max_word: Advanced Chinese (requires IK Analysis plugin)
+    # Docker: SmartCN is auto-installed via Dockerfile.elasticsearch
+    text-analyzer: smartcn
+
 # ============ LangChain4j / OpenAI ============
 langchain4j:
   openai:

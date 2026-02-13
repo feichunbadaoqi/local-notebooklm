@@ -212,8 +212,16 @@ public class DocumentMetadataExtractor {
       String term = entry.getKey();
       int freq = entry.getValue();
 
-      // Skip very short terms
-      if (term.length() < 3) {
+      // Skip very short terms, but be lenient for CJK (denser information)
+      boolean isCJK =
+          term.chars()
+              .anyMatch(
+                  c ->
+                      Character.UnicodeBlock.of(c)
+                          == Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS);
+      int minLength = isCJK ? 2 : 3; // Chinese words can be 2+ chars, English needs 3+
+
+      if (term.length() < minLength) {
         continue;
       }
 
@@ -221,7 +229,9 @@ public class DocumentMetadataExtractor {
       double tfScore = 1 + Math.log(freq);
 
       // Length bonus for longer terms (likely more specific)
-      double lengthBonus = term.length() > 6 ? 1.2 : 1.0;
+      // CJK: 3+ chars is significant, English: 6+ chars
+      int longTermThreshold = isCJK ? 3 : 6;
+      double lengthBonus = term.length() >= longTermThreshold ? 1.2 : 1.0;
 
       // Penalty for very common terms (appear in > 10% of tokens)
       double frequency = (double) freq / totalTokens;
@@ -287,12 +297,15 @@ public class DocumentMetadataExtractor {
   }
 
   private List<String> tokenize(String text) {
-    // Split on non-word characters, keeping only words
-    String[] words = text.split("[^a-zA-Z0-9']+");
+    // Split on whitespace and punctuation, keeping Unicode word characters (including CJK)
+    // \\p{L} = any Unicode letter (including Chinese, Japanese, Korean, etc.)
+    // \\p{N} = any Unicode number
+    String[] words = text.split("[^\\p{L}\\p{N}']+");
     return Arrays.stream(words)
         .filter(w -> !w.isEmpty())
         .map(w -> w.replaceAll("^'+|'+$", "")) // Remove leading/trailing apostrophes
         .filter(w -> !w.isEmpty())
+        .filter(w -> w.length() >= 2) // Keep words with at least 2 characters (Chinese or English)
         .collect(Collectors.toList());
   }
 

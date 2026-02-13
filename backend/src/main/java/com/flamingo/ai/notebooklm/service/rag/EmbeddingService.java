@@ -20,11 +20,12 @@ import org.springframework.stereotype.Service;
 public class EmbeddingService {
 
   // OpenAI text-embedding-3-small has 8192 token limit
-  // Use conservative estimate: ~2.5 chars per token (technical content has shorter tokens)
-  private static final int MAX_TOKENS_PER_EMBEDDING = 7500; // Leave margin below 8192 limit
-  private static final double CHARS_PER_TOKEN_ESTIMATE = 2.5;
+  // Use VERY conservative estimate for multilingual content (especially CJK)
+  // Dense CJK text can be as low as 1.0 chars/token (nearly 1:1 ratio)
+  private static final int MAX_TOKENS_PER_EMBEDDING = 5000; // Leave safe margin below 8192 limit
+  private static final double CHARS_PER_TOKEN_ESTIMATE = 1.0; // Very conservative for dense CJK
   private static final int MAX_CHARS_PER_EMBEDDING =
-      (int) (MAX_TOKENS_PER_EMBEDDING * CHARS_PER_TOKEN_ESTIMATE);
+      (int) (MAX_TOKENS_PER_EMBEDDING * CHARS_PER_TOKEN_ESTIMATE); // 5000 chars
 
   private final EmbeddingModel embeddingModel;
   private final MeterRegistry meterRegistry;
