@@ -20,6 +20,10 @@ export class ChatService {
   private loadingSignal = signal(false);
   private errorSignal = signal<string | null>(null);
 
+  // Track citation numbers per message
+  private citationNumberMap = new Map<string, number>();
+  private currentCitationCounter = 0;
+
   readonly messages = this.messagesSignal.asReadonly();
   readonly streaming = this.streamingSignal.asReadonly();
   readonly currentStreamContent = this.currentStreamContentSignal.asReadonly();
@@ -67,6 +71,10 @@ export class ChatService {
     this.currentStreamContentSignal.set('');
     this.currentCitationsSignal.set([]);
     this.errorSignal.set(null);
+
+    // Reset citation tracking for new message
+    this.citationNumberMap.clear();
+    this.currentCitationCounter = 0;
 
     // Close any existing connection
     this.closeStream();
@@ -222,11 +230,18 @@ export class ChatService {
       case 'token':
         return { eventType, content: data.content };
       case 'citation':
+        const fileName = data.source || '';
+        // Assign unique citation numbers, deduplicating by fileName
+        let sourceNumber = this.citationNumberMap.get(fileName);
+        if (sourceNumber === undefined) {
+          sourceNumber = ++this.currentCitationCounter;
+          this.citationNumberMap.set(fileName, sourceNumber);
+        }
         return {
           eventType,
           citation: {
-            sourceNumber: 0,
-            fileName: data.source || '',
+            sourceNumber,
+            fileName,
             content: data.text || '',
             chunkId: ''
           }

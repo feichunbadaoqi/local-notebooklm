@@ -1,6 +1,7 @@
 import { Component, input, output } from '@angular/core';
 import { ChatMessage, Citation } from '../../../../core/models';
 import { DatePipe } from '@angular/common';
+import { marked } from 'marked';
 
 @Component({
   selector: 'app-chat-message',
@@ -36,11 +37,7 @@ import { DatePipe } from '@angular/common';
         <div class="flex-1 max-w-[80%]">
           <div class="message-assistant p-4">
             <div class="prose prose-sm max-w-none">
-              @if (hasInlineCitations()) {
-                <p [innerHTML]="getContentWithCitations()"></p>
-              } @else {
-                <p class="whitespace-pre-wrap">{{ message().content }}</p>
-              }
+              <div [innerHTML]="getRenderedContent()"></div>
             </div>
           </div>
 
@@ -49,7 +46,7 @@ import { DatePipe } from '@angular/common';
             <div class="mt-3 space-y-2">
               <div class="text-xs font-medium text-text-muted uppercase tracking-wide">Sources</div>
               <div class="flex flex-wrap gap-2">
-                @for (citation of message().citations; track citation.sourceNumber) {
+                @for (citation of getUniqueCitations(); track citation.sourceNumber) {
                   <button
                     class="flex items-center gap-2 px-3 py-1.5 bg-bg-sidebar hover:bg-bg-hover rounded-lg text-sm transition-colors group"
                     (click)="citationClick.emit(citation)"
@@ -99,24 +96,54 @@ export class ChatMessageComponent {
   message = input.required<ChatMessage>();
   citationClick = output<Citation>();
 
+  constructor() {
+    // Configure marked options
+    marked.setOptions({
+      breaks: true, // Convert line breaks to <br>
+      gfm: true // Enable GitHub Flavored Markdown
+    });
+  }
+
   hasInlineCitations(): boolean {
     const citations = this.message().citations;
     return this.message().content.includes('[') && !!citations && citations.length > 0;
   }
 
-  getContentWithCitations(): string {
+  getRenderedContent(): string {
     let content = this.message().content;
-    const citations = this.message().citations || [];
 
-    // Replace [1], [2], etc. with styled citation spans
-    for (const citation of citations) {
-      const pattern = new RegExp(`\\[${citation.sourceNumber}\\]`, 'g');
-      content = content.replace(
-        pattern,
-        `<span class="citation cursor-pointer" data-source="${citation.sourceNumber}">${citation.sourceNumber}</span>`
-      );
+    // First, replace inline citations [1], [2], etc. with styled spans
+    if (this.hasInlineCitations()) {
+      const citations = this.message().citations || [];
+      for (const citation of citations) {
+        const pattern = new RegExp(`\\[${citation.sourceNumber}\\]`, 'g');
+        content = content.replace(
+          pattern,
+          `<span class="citation cursor-pointer" data-source="${citation.sourceNumber}">${citation.sourceNumber}</span>`
+        );
+      }
     }
 
-    return content;
+    // Then render markdown to HTML
+    try {
+      return marked.parse(content, { async: false }) as string;
+    } catch (e) {
+      console.error('Markdown parsing error:', e);
+      return content;
+    }
+  }
+
+  getUniqueCitations(): Citation[] {
+    const citations = this.message().citations || [];
+    const seen = new Map<string, Citation>();
+
+    // Deduplicate by fileName, keeping first occurrence
+    for (const citation of citations) {
+      if (!seen.has(citation.fileName)) {
+        seen.set(citation.fileName, citation);
+      }
+    }
+
+    return Array.from(seen.values());
   }
 }

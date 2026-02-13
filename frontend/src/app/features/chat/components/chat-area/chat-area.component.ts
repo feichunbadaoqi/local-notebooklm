@@ -1,6 +1,7 @@
 import { Component, input, output, signal, ElementRef, viewChild, effect } from '@angular/core';
 import { ChatMessage, Citation } from '../../../../core/models';
 import { ChatMessageComponent } from '../chat-message/chat-message.component';
+import { marked } from 'marked';
 
 @Component({
   selector: 'app-chat-area',
@@ -62,7 +63,7 @@ import { ChatMessageComponent } from '../chat-message/chat-message.component';
                 <div class="flex-1">
                   <div class="message-assistant p-4 inline-block max-w-full">
                     @if (streamContent()) {
-                      <p class="whitespace-pre-wrap">{{ streamContent() }}</p>
+                      <div class="prose prose-sm max-w-none" [innerHTML]="renderStreamMarkdown()"></div>
                     } @else {
                       <div class="flex items-center gap-2">
                         <div class="w-2 h-2 bg-primary rounded-full animate-pulse"></div>
@@ -73,7 +74,7 @@ import { ChatMessageComponent } from '../chat-message/chat-message.component';
                   </div>
                   @if (citations().length > 0) {
                     <div class="mt-2 flex flex-wrap gap-1">
-                      @for (citation of citations(); track citation.sourceNumber) {
+                      @for (citation of getUniqueStreamCitations(); track citation.sourceNumber) {
                         <span class="citation" (click)="onCitationClick(citation)">
                           {{ citation.sourceNumber }}
                         </span>
@@ -140,6 +141,12 @@ export class ChatAreaComponent {
   ];
 
   constructor() {
+    // Configure marked options
+    marked.setOptions({
+      breaks: true, // Convert line breaks to <br>
+      gfm: true // Enable GitHub Flavored Markdown
+    });
+
     // Auto-scroll when messages change
     effect(() => {
       const messages = this.messages();
@@ -147,6 +154,29 @@ export class ChatAreaComponent {
       const content = this.streamContent();
       this.scrollToBottom();
     });
+  }
+
+  renderStreamMarkdown(): string {
+    try {
+      return marked.parse(this.streamContent(), { async: false }) as string;
+    } catch (e) {
+      console.error('Markdown parsing error:', e);
+      return this.streamContent();
+    }
+  }
+
+  getUniqueStreamCitations(): Citation[] {
+    const citations = this.citations();
+    const seen = new Map<string, Citation>();
+
+    // Deduplicate by fileName, keeping first occurrence
+    for (const citation of citations) {
+      if (!seen.has(citation.fileName)) {
+        seen.set(citation.fileName, citation);
+      }
+    }
+
+    return Array.from(seen.values());
   }
 
   canSend = () => this.inputValue().trim().length > 0 && !this.streaming();

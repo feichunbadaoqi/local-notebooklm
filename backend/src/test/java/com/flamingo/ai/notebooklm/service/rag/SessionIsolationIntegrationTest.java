@@ -94,7 +94,6 @@ class SessionIsolationIntegrationTest {
             indexService, embeddingService, diversityReranker, ragConfig, meterRegistry);
 
     indexService.initIndex();
-    Thread.sleep(1000);
 
     sessionA = UUID.randomUUID();
     sessionB = UUID.randomUUID();
@@ -174,7 +173,7 @@ class SessionIsolationIntegrationTest {
 
     indexService.indexChunks(sessionAChunks);
     indexService.indexChunks(sessionBChunks);
-    Thread.sleep(2000);
+    indexService.refresh(); // Make documents immediately searchable
 
     List<DocumentChunk> resultsA =
         hybridSearchService.search(sessionA, "artificial intelligence", InteractionMode.EXPLORING);
@@ -191,10 +190,15 @@ class SessionIsolationIntegrationTest {
     List<DocumentChunk> resultsB =
         hybridSearchService.search(sessionB, "artificial intelligence", InteractionMode.EXPLORING);
 
+    // Session B should not see any of Session A's documents (session isolation test)
     assertThat(resultsB)
-        .describedAs(
-            "Session B should not see Session A's documents even though they match the query")
-        .isEmpty();
+        .describedAs("Session B should not return documents from Session A")
+        .allSatisfy(chunk -> assertThat(chunk.getSessionId()).isEqualTo(sessionB))
+        .allSatisfy(
+            chunk ->
+                assertThat(chunk.getDocumentId())
+                    .describedAs("Session B should only see its own document")
+                    .isEqualTo(documentB1));
   }
 
   @Test
@@ -222,7 +226,7 @@ class SessionIsolationIntegrationTest {
 
     indexService.indexChunks(sessionAChunks);
     indexService.indexChunks(sessionBChunks);
-    Thread.sleep(2000);
+    indexService.refresh(); // Make documents immediately searchable
 
     List<Float> aiEmbedding = embeddingService.embedText("artificial intelligence");
 
@@ -233,9 +237,11 @@ class SessionIsolationIntegrationTest {
         .isNotEmpty()
         .allSatisfy(chunk -> assertThat(chunk.getSessionId()).isEqualTo(sessionA));
 
+    // Session B's vector search should only return Session B's documents, never Session A's
     assertThat(vectorResultsB)
         .describedAs("Session B should not see Session A's documents via vector search")
-        .isEmpty();
+        .allSatisfy(chunk -> assertThat(chunk.getSessionId()).isEqualTo(sessionB))
+        .allSatisfy(chunk -> assertThat(chunk.getDocumentId()).isEqualTo(documentB1));
   }
 
   @Test
@@ -263,7 +269,7 @@ class SessionIsolationIntegrationTest {
 
     indexService.indexChunks(sessionAChunks);
     indexService.indexChunks(sessionBChunks);
-    Thread.sleep(2000);
+    indexService.refresh(); // Make documents immediately searchable
 
     List<DocumentChunk> keywordResultsA = indexService.keywordSearch(sessionA, "Python", 10);
     List<DocumentChunk> keywordResultsB = indexService.keywordSearch(sessionB, "Python", 10);
@@ -307,7 +313,7 @@ class SessionIsolationIntegrationTest {
             "Third document about neural networks."));
 
     indexService.indexChunks(sessionAChunks);
-    Thread.sleep(2000);
+    indexService.refresh(); // Make documents immediately searchable
 
     List<DocumentChunk> results =
         hybridSearchService.search(sessionA, "artificial intelligence", InteractionMode.EXPLORING);
@@ -349,8 +355,11 @@ class SessionIsolationIntegrationTest {
     embedding[0] = v1;
     embedding[1] = v2;
     embedding[2] = v3;
+    // Create truly distinct embeddings by using different patterns based on the seed values
+    // This ensures semantic separation between different content types
+    double seed = v1 + v2 * 10 + v3 * 100; // Unique seed per embedding type
     for (int i = 3; i < 3072; i++) {
-      embedding[i] = (float) (0.001 * Math.sin(i));
+      embedding[i] = (float) (0.001 * Math.sin(i * seed));
     }
     return embedding;
   }

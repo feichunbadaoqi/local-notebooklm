@@ -378,6 +378,16 @@ public class ElasticsearchIndexService {
     }
   }
 
+  /** Explicitly refresh the index to make all changes immediately visible for search. */
+  public void refresh() {
+    try {
+      elasticsearchClient.indices().refresh(r -> r.index(indexName));
+      log.debug("Refreshed index: {}", indexName);
+    } catch (IOException e) {
+      log.error("Failed to refresh index {}: {}", indexName, e.getMessage());
+    }
+  }
+
   @SuppressWarnings("unchecked")
   private List<DocumentChunk> mapHitsToChunks(List<Hit<Map>> hits) {
     List<DocumentChunk> chunks = new ArrayList<>();
