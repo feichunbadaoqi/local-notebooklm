@@ -7,8 +7,8 @@ import com.flamingo.ai.notebooklm.domain.repository.DocumentRepository;
 import com.flamingo.ai.notebooklm.elasticsearch.DocumentChunk;
 import com.flamingo.ai.notebooklm.elasticsearch.ElasticsearchIndexService;
 import com.flamingo.ai.notebooklm.exception.DocumentProcessingException;
+import io.micrometer.core.annotation.Timed;
 import io.micrometer.core.instrument.MeterRegistry;
-import io.micrometer.core.instrument.Timer;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.List;
@@ -46,9 +46,9 @@ public class DocumentProcessingService {
    * @param documentId the document to process
    * @param inputStream the document content stream
    */
+  @Timed(value = "document.process", description = "Time to process document")
   @Async("documentProcessingExecutor")
   public void processDocumentAsync(UUID documentId, InputStream inputStream) {
-    Timer.Sample sample = Timer.start(meterRegistry);
     try {
       Document document = getDocumentWithRetry(documentId);
 
@@ -206,8 +206,6 @@ public class DocumentProcessingService {
       } catch (Exception retryEx) {
         log.error("Failed to update document status after retries: {}", retryEx.getMessage());
       }
-    } finally {
-      sample.stop(meterRegistry.timer("document.processing.duration"));
     }
   }
 

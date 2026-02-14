@@ -9,8 +9,8 @@ import com.flamingo.ai.notebooklm.domain.repository.ChatSummaryRepository;
 import com.flamingo.ai.notebooklm.service.session.SessionService;
 import dev.langchain4j.model.chat.ChatModel;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
+import io.micrometer.core.annotation.Timed;
 import io.micrometer.core.instrument.MeterRegistry;
-import io.micrometer.core.instrument.Timer;
 import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -85,76 +85,70 @@ public class ChatCompactionService {
    *
    * @param sessionId the session to compact
    */
+  @Timed(value = "chat.compaction", description = "Time to compact chat history")
   @Transactional
   @CircuitBreaker(name = "openai", fallbackMethod = "compactFallback")
   public void compact(UUID sessionId) {
-    Timer.Sample sample = Timer.start(meterRegistry);
+    Session session = sessionService.getSession(sessionId);
+    List<ChatMessage> nonCompactedMessages =
+        chatMessageRepository.findNonCompactedMessagesBySessionId(sessionId);
 
-    try {
-      Session session = sessionService.getSession(sessionId);
-      List<ChatMessage> nonCompactedMessages =
-          chatMessageRepository.findNonCompactedMessagesBySessionId(sessionId);
-
-      if (nonCompactedMessages.isEmpty()) {
-        return;
-      }
-
-      int slidingWindowSize = ragConfig.getCompaction().getSlidingWindowSize();
-      int batchSize = ragConfig.getCompaction().getBatchSize();
-
-      // Keep recent messages, compact older ones
-      if (nonCompactedMessages.size() <= slidingWindowSize) {
-        return;
-      }
-
-      // Messages to compact (older messages beyond the sliding window)
-      List<ChatMessage> messagesToCompact =
-          nonCompactedMessages.stream()
-              .skip(slidingWindowSize)
-              .limit(batchSize)
-              .collect(Collectors.toList());
-
-      if (messagesToCompact.isEmpty()) {
-        return;
-      }
-
-      // Generate summary
-      String summary = generateSummary(messagesToCompact);
-
-      // Calculate original token count
-      int originalTokens =
-          messagesToCompact.stream()
-              .mapToInt(m -> m.getTokenCount() != null ? m.getTokenCount() : 0)
-              .sum();
-
-      // Create summary record
-      ChatSummary chatSummary =
-          ChatSummary.builder()
-              .session(session)
-              .summaryContent(summary)
-              .messageCount(messagesToCompact.size())
-              .tokenCount(estimateTokenCount(summary))
-              .originalTokenCount(originalTokens)
-              .fromTimestamp(messagesToCompact.get(0).getCreatedAt())
-              .toTimestamp(messagesToCompact.get(messagesToCompact.size() - 1).getCreatedAt())
-              .build();
-
-      chatSummaryRepository.save(chatSummary);
-
-      // Mark messages as compacted
-      for (ChatMessage message : messagesToCompact) {
-        message.markCompacted(chatSummary);
-      }
-      chatMessageRepository.saveAll(messagesToCompact);
-
-      meterRegistry.counter("chat.compaction.success").increment();
-      meterRegistry.counter("chat.messages.compacted").increment(messagesToCompact.size());
-
-      log.info("Compacted {} messages for session {}", messagesToCompact.size(), sessionId);
-
-    } finally {
-      sample.stop(meterRegistry.timer("chat.compaction.duration"));
+    if (nonCompactedMessages.isEmpty()) {
+      return;
     }
+
+    int slidingWindowSize = ragConfig.getCompaction().getSlidingWindowSize();
+    int batchSize = ragConfig.getCompaction().getBatchSize();
+
+    // Keep recent messages, compact older ones
+    if (nonCompactedMessages.size() <= slidingWindowSize) {
+      return;
+    }
+
+    // Messages to compact (older messages beyond the sliding window)
+    List<ChatMessage> messagesToCompact =
+        nonCompactedMessages.stream()
+            .skip(slidingWindowSize)
+            .limit(batchSize)
+            .collect(Collectors.toList());
+
+    if (messagesToCompact.isEmpty()) {
+      return;
+    }
+
+    // Generate summary
+    String summary = generateSummary(messagesToCompact);
+
+    // Calculate original token count
+    int originalTokens =
+        messagesToCompact.stream()
+            .mapToInt(m -> m.getTokenCount() != null ? m.getTokenCount() : 0)
+            .sum();
+
+    // Create summary record
+    ChatSummary chatSummary =
+        ChatSummary.builder()
+            .session(session)
+            .summaryContent(summary)
+            .messageCount(messagesToCompact.size())
+            .tokenCount(estimateTokenCount(summary))
+            .originalTokenCount(originalTokens)
+            .fromTimestamp(messagesToCompact.get(0).getCreatedAt())
+            .toTimestamp(messagesToCompact.get(messagesToCompact.size() - 1).getCreatedAt())
+            .build();
+
+    chatSummaryRepository.save(chatSummary);
+
+    // Mark messages as compacted
+    for (ChatMessage message : messagesToCompact) {
+      message.markCompacted(chatSummary);
+    }
+    chatMessageRepository.saveAll(messagesToCompact);
+
+    meterRegistry.counter("chat.compaction.success").increment();
+    meterRegistry.counter("chat.messages.compacted").increment(messagesToCompact.size());
+
+    log.info("Compacted {} messages for session {}", messagesToCompact.size(), sessionId);
   }
 
   @SuppressWarnings("unused")

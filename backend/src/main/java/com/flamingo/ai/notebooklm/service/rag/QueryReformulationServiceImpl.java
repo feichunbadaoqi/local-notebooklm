@@ -8,8 +8,8 @@ import com.flamingo.ai.notebooklm.domain.enums.InteractionMode;
 import com.flamingo.ai.notebooklm.domain.enums.MessageRole;
 import com.flamingo.ai.notebooklm.domain.repository.ChatMessageRepository;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
+import io.micrometer.core.annotation.Timed;
 import io.micrometer.core.instrument.MeterRegistry;
-import io.micrometer.core.instrument.Timer;
 import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
@@ -27,14 +27,13 @@ public class QueryReformulationServiceImpl implements QueryReformulationService 
   private final MeterRegistry meterRegistry;
 
   @Override
+  @Timed(value = "rag.query_reformulation", description = "Time to reformulate query")
   @CircuitBreaker(name = "openai", fallbackMethod = "reformulateFallback")
   public String reformulate(UUID sessionId, String originalQuery, InteractionMode mode) {
 
     if (!ragConfig.getQueryReformulation().isEnabled()) {
       return originalQuery;
     }
-
-    Timer.Sample sample = Timer.start(meterRegistry);
 
     try {
       // Retrieve conversation history
@@ -61,7 +60,6 @@ public class QueryReformulationServiceImpl implements QueryReformulationService 
           result.reasoning());
 
       // Metrics
-      sample.stop(meterRegistry.timer("rag.query_reformulation.duration"));
       if (result.needsReformulation()) {
         meterRegistry.counter("rag.query_reformulation.reformulated").increment();
       } else {

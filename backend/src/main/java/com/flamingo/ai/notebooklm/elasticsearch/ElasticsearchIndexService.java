@@ -12,8 +12,8 @@ import co.elastic.clients.elasticsearch.core.SearchResponse;
 import co.elastic.clients.elasticsearch.core.search.Hit;
 import co.elastic.clients.elasticsearch.indices.CreateIndexRequest;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
+import io.micrometer.core.annotation.Timed;
 import io.micrometer.core.instrument.MeterRegistry;
-import io.micrometer.core.instrument.Timer;
 import jakarta.annotation.PostConstruct;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -120,13 +120,13 @@ public class ElasticsearchIndexService {
     elasticsearchClient.indices().create(request);
   }
 
+  @Timed(value = "elasticsearch.index", description = "Time to index chunks")
   @CircuitBreaker(name = "elasticsearch", fallbackMethod = "indexChunksFallback")
   public void indexChunks(List<DocumentChunk> chunks) {
     log.info(
         "indexChunks called with {} chunks for session {}",
         chunks.size(),
         chunks.isEmpty() ? "unknown" : chunks.get(0).getSessionId());
-    Timer.Sample sample = Timer.start(meterRegistry);
     try {
       BulkRequest.Builder bulkBuilder = new BulkRequest.Builder();
 
@@ -193,8 +193,6 @@ public class ElasticsearchIndexService {
     } catch (IOException e) {
       log.error("Failed to index chunks: {}", e.getMessage(), e);
       throw new RuntimeException("Elasticsearch indexing failed", e);
-    } finally {
-      sample.stop(meterRegistry.timer("elasticsearch.index.duration"));
     }
   }
 
@@ -204,6 +202,7 @@ public class ElasticsearchIndexService {
     meterRegistry.counter("elasticsearch.circuitbreaker.open").increment();
   }
 
+  @Timed(value = "elasticsearch.vectorsearch", description = "Time for vector search")
   @CircuitBreaker(name = "elasticsearch", fallbackMethod = "vectorSearchFallback")
   public List<DocumentChunk> vectorSearch(UUID sessionId, List<Float> queryEmbedding, int topK) {
     log.info("========== VECTOR SEARCH START ==========");
@@ -216,7 +215,6 @@ public class ElasticsearchIndexService {
     log.info(
         "First 5 dimensions of query embedding: {}",
         queryEmbedding.subList(0, Math.min(5, queryEmbedding.size())));
-    Timer.Sample sample = Timer.start(meterRegistry);
     try {
       // Use knn search at the request level with filter
       SearchRequest request =
@@ -267,8 +265,6 @@ public class ElasticsearchIndexService {
     } catch (IOException e) {
       log.error("Vector search failed: {}", e.getMessage(), e);
       throw new RuntimeException("Vector search failed", e);
-    } finally {
-      sample.stop(meterRegistry.timer("elasticsearch.vectorsearch.duration"));
     }
   }
 
@@ -279,12 +275,12 @@ public class ElasticsearchIndexService {
     return List.of();
   }
 
+  @Timed(value = "elasticsearch.keywordsearch", description = "Time for keyword search")
   @CircuitBreaker(name = "elasticsearch", fallbackMethod = "keywordSearchFallback")
   public List<DocumentChunk> keywordSearch(UUID sessionId, String query, int topK) {
     log.info("========== KEYWORD SEARCH START ==========");
     log.info("keywordSearch called for session {}, query='{}', topK={}", sessionId, query, topK);
     log.info("Filtering by sessionId: {}", sessionId);
-    Timer.Sample sample = Timer.start(meterRegistry);
     try {
       SearchRequest request =
           SearchRequest.of(
@@ -336,8 +332,6 @@ public class ElasticsearchIndexService {
     } catch (IOException e) {
       log.error("Keyword search failed: {}", e.getMessage(), e);
       throw new RuntimeException("Keyword search failed", e);
-    } finally {
-      sample.stop(meterRegistry.timer("elasticsearch.keywordsearch.duration"));
     }
   }
 

@@ -5,8 +5,8 @@ import dev.langchain4j.model.embedding.EmbeddingModel;
 import dev.langchain4j.model.output.Response;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import io.github.resilience4j.retry.annotation.Retry;
+import io.micrometer.core.annotation.Timed;
 import io.micrometer.core.instrument.MeterRegistry;
-import io.micrometer.core.instrument.Timer;
 import java.util.ArrayList;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
@@ -30,6 +30,7 @@ public class EmbeddingService {
   private final EmbeddingModel embeddingModel;
   private final MeterRegistry meterRegistry;
 
+  @Timed(value = "embedding.embed", description = "Time to embed text")
   @CircuitBreaker(name = "openai", fallbackMethod = "embedTextFallback")
   @Retry(name = "openai")
   public List<Float> embedText(String text) {
@@ -42,58 +43,49 @@ public class EmbeddingService {
           MAX_CHARS_PER_EMBEDDING);
       text = text.substring(0, MAX_CHARS_PER_EMBEDDING);
     }
-    Timer.Sample sample = Timer.start(meterRegistry);
-    try {
-      log.debug("Calling OpenAI embedding API...");
-      Response<Embedding> response = embeddingModel.embed(text);
-      meterRegistry.counter("embedding.requests.success").increment();
+    log.debug("Calling OpenAI embedding API...");
+    Response<Embedding> response = embeddingModel.embed(text);
+    meterRegistry.counter("embedding.requests.success").increment();
 
-      float[] vector = response.content().vector();
-      log.debug("Embedding generated successfully, vector dimension: {}", vector.length);
-      List<Float> result = new ArrayList<>(vector.length);
-      for (float f : vector) {
-        result.add(f);
-      }
-      return result;
-    } finally {
-      sample.stop(meterRegistry.timer("embedding.duration"));
+    float[] vector = response.content().vector();
+    log.debug("Embedding generated successfully, vector dimension: {}", vector.length);
+    List<Float> result = new ArrayList<>(vector.length);
+    for (float f : vector) {
+      result.add(f);
     }
+    return result;
   }
 
+  @Timed(value = "embedding.embedBatch", description = "Time to embed batch")
   @CircuitBreaker(name = "openai", fallbackMethod = "embedTextsFallback")
   @Retry(name = "openai")
   public List<List<Float>> embedTexts(List<String> texts) {
-    Timer.Sample sample = Timer.start(meterRegistry);
-    try {
-      List<List<Float>> results = new ArrayList<>();
-      // Process embeddings one at a time to avoid batching issues
-      for (int i = 0; i < texts.size(); i++) {
-        String text = texts.get(i);
-        // Truncate if too long - use conservative estimate
-        String truncatedText = text;
-        if (text.length() > MAX_CHARS_PER_EMBEDDING) {
-          log.warn(
-              "Chunk {} too long for embedding, truncating from {} chars to {} chars",
-              i,
-              text.length(),
-              MAX_CHARS_PER_EMBEDDING);
-          truncatedText = text.substring(0, MAX_CHARS_PER_EMBEDDING);
-        }
-        Response<Embedding> response = embeddingModel.embed(truncatedText);
-        float[] vector = response.content().vector();
-        List<Float> embedding = new ArrayList<>(vector.length);
-        for (float f : vector) {
-          embedding.add(f);
-        }
-        results.add(embedding);
+    List<List<Float>> results = new ArrayList<>();
+    // Process embeddings one at a time to avoid batching issues
+    for (int i = 0; i < texts.size(); i++) {
+      String text = texts.get(i);
+      // Truncate if too long - use conservative estimate
+      String truncatedText = text;
+      if (text.length() > MAX_CHARS_PER_EMBEDDING) {
+        log.warn(
+            "Chunk {} too long for embedding, truncating from {} chars to {} chars",
+            i,
+            text.length(),
+            MAX_CHARS_PER_EMBEDDING);
+        truncatedText = text.substring(0, MAX_CHARS_PER_EMBEDDING);
       }
-      meterRegistry
-          .counter("embedding.requests.success", "count", String.valueOf(texts.size()))
-          .increment();
-      return results;
-    } finally {
-      sample.stop(meterRegistry.timer("embedding.batch.duration"));
+      Response<Embedding> response = embeddingModel.embed(truncatedText);
+      float[] vector = response.content().vector();
+      List<Float> embedding = new ArrayList<>(vector.length);
+      for (float f : vector) {
+        embedding.add(f);
+      }
+      results.add(embedding);
     }
+    meterRegistry
+        .counter("embedding.requests.success", "count", String.valueOf(texts.size()))
+        .increment();
+    return results;
   }
 
   @SuppressWarnings("unused")

@@ -23,8 +23,8 @@ import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import io.github.resilience4j.retry.annotation.Retry;
+import io.micrometer.core.annotation.Timed;
 import io.micrometer.core.instrument.MeterRegistry;
-import io.micrometer.core.instrument.Timer;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -55,11 +55,11 @@ public class ChatServiceImpl implements ChatService {
   private final MeterRegistry meterRegistry;
 
   @Override
+  @Timed(value = "chat.stream", description = "Time to stream chat response")
   @CircuitBreaker(name = "openai", fallbackMethod = "streamChatFallback")
   @Retry(name = "openai")
   public Flux<StreamChunkResponse> streamChat(UUID sessionId, String userMessage) {
     log.debug("streamChat called for session {} with message: {}", sessionId, userMessage);
-    Timer.Sample sample = Timer.start(meterRegistry);
 
     Session session = sessionService.getSession(sessionId);
     InteractionMode mode = session.getCurrentMode();
@@ -144,8 +144,6 @@ public class ChatServiceImpl implements ChatService {
                 StreamChunkResponse.done(assistantMsg.getId().toString(), 0, tokenCount.get()));
             sink.tryEmitComplete();
             log.debug("Chat stream completed successfully");
-
-            sample.stop(meterRegistry.timer("chat.stream.duration"));
           }
 
           @Override

@@ -4,8 +4,8 @@ import com.flamingo.ai.notebooklm.config.RagConfig;
 import com.flamingo.ai.notebooklm.domain.enums.InteractionMode;
 import com.flamingo.ai.notebooklm.elasticsearch.DocumentChunk;
 import com.flamingo.ai.notebooklm.elasticsearch.ElasticsearchIndexService;
+import io.micrometer.core.annotation.Timed;
 import io.micrometer.core.instrument.MeterRegistry;
-import io.micrometer.core.instrument.Timer;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -40,56 +40,51 @@ public class HybridSearchService {
    * @param mode the interaction mode (determines number of results)
    * @return list of relevant document chunks
    */
+  @Timed(value = "rag.search", description = "Time for hybrid search")
   public List<DocumentChunk> search(UUID sessionId, String query, InteractionMode mode) {
     log.debug("Starting hybrid search for session {} with query: {}", sessionId, query);
-    Timer.Sample sample = Timer.start(meterRegistry);
-    try {
-      int topK = mode.getRetrievalCount();
-      int candidateMultiplier = ragConfig.getRetrieval().getCandidatesMultiplier();
-      log.debug("Mode: {}, topK: {}, candidateMultiplier: {}", mode, topK, candidateMultiplier);
+    int topK = mode.getRetrievalCount();
+    int candidateMultiplier = ragConfig.getRetrieval().getCandidatesMultiplier();
+    log.debug("Mode: {}, topK: {}, candidateMultiplier: {}", mode, topK, candidateMultiplier);
 
-      // Get query embedding
-      log.debug("Generating query embedding...");
-      List<Float> queryEmbedding = embeddingService.embedText(query);
-      log.debug("Query embedding generated, size: {}", queryEmbedding.size());
-      if (queryEmbedding.isEmpty()) {
-        log.warn("Failed to generate query embedding, falling back to keyword search only");
-        return elasticsearchIndexService.keywordSearch(sessionId, query, topK);
-      }
-
-      // Perform both searches
-      log.debug("Performing vector search...");
-      List<DocumentChunk> vectorResults =
-          elasticsearchIndexService.vectorSearch(
-              sessionId, queryEmbedding, topK * candidateMultiplier);
-      log.debug("Vector search returned {} results", vectorResults.size());
-
-      log.debug("Performing keyword search...");
-      List<DocumentChunk> keywordResults =
-          elasticsearchIndexService.keywordSearch(sessionId, query, topK * candidateMultiplier);
-      log.debug("Keyword search returned {} results", keywordResults.size());
-
-      // Apply RRF fusion to combine results
-      List<DocumentChunk> fusedResults =
-          applyRrf(vectorResults, keywordResults, topK * candidateMultiplier);
-      log.debug("RRF fusion returned {} results", fusedResults.size());
-
-      // Apply diversity reranking for multi-document support
-      List<DocumentChunk> diverseResults = diversityReranker.rerank(fusedResults, topK);
-      long uniqueDocs =
-          diverseResults.stream().map(DocumentChunk::getDocumentId).distinct().count();
-      log.debug(
-          "Diversity reranking returned {} results from {} documents",
-          diverseResults.size(),
-          uniqueDocs);
-
-      meterRegistry.counter("rag.search.success").increment();
-      meterRegistry.gauge("rag.search.results", diverseResults, List::size);
-
-      return diverseResults;
-    } finally {
-      sample.stop(meterRegistry.timer("rag.search.duration"));
+    // Get query embedding
+    log.debug("Generating query embedding...");
+    List<Float> queryEmbedding = embeddingService.embedText(query);
+    log.debug("Query embedding generated, size: {}", queryEmbedding.size());
+    if (queryEmbedding.isEmpty()) {
+      log.warn("Failed to generate query embedding, falling back to keyword search only");
+      return elasticsearchIndexService.keywordSearch(sessionId, query, topK);
     }
+
+    // Perform both searches
+    log.debug("Performing vector search...");
+    List<DocumentChunk> vectorResults =
+        elasticsearchIndexService.vectorSearch(
+            sessionId, queryEmbedding, topK * candidateMultiplier);
+    log.debug("Vector search returned {} results", vectorResults.size());
+
+    log.debug("Performing keyword search...");
+    List<DocumentChunk> keywordResults =
+        elasticsearchIndexService.keywordSearch(sessionId, query, topK * candidateMultiplier);
+    log.debug("Keyword search returned {} results", keywordResults.size());
+
+    // Apply RRF fusion to combine results
+    List<DocumentChunk> fusedResults =
+        applyRrf(vectorResults, keywordResults, topK * candidateMultiplier);
+    log.debug("RRF fusion returned {} results", fusedResults.size());
+
+    // Apply diversity reranking for multi-document support
+    List<DocumentChunk> diverseResults = diversityReranker.rerank(fusedResults, topK);
+    long uniqueDocs = diverseResults.stream().map(DocumentChunk::getDocumentId).distinct().count();
+    log.debug(
+        "Diversity reranking returned {} results from {} documents",
+        diverseResults.size(),
+        uniqueDocs);
+
+    meterRegistry.counter("rag.search.success").increment();
+    meterRegistry.gauge("rag.search.results", diverseResults, List::size);
+
+    return diverseResults;
   }
 
   /**
