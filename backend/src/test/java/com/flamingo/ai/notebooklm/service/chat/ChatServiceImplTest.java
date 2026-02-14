@@ -22,6 +22,7 @@ import com.flamingo.ai.notebooklm.domain.repository.ChatSummaryRepository;
 import com.flamingo.ai.notebooklm.elasticsearch.DocumentChunk;
 import com.flamingo.ai.notebooklm.service.memory.MemoryService;
 import com.flamingo.ai.notebooklm.service.rag.HybridSearchService;
+import com.flamingo.ai.notebooklm.service.rag.QueryReformulationService;
 import com.flamingo.ai.notebooklm.service.session.SessionService;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
@@ -54,6 +55,7 @@ class ChatServiceImplTest {
   @Mock private StreamingChatModel streamingChatModel;
   @Mock private ChatCompactionService compactionService;
   @Mock private MemoryService memoryService;
+  @Mock private QueryReformulationService queryReformulationService;
   @Mock private MeterRegistry meterRegistry;
   @Mock private Counter counter;
   @Mock private Timer timer;
@@ -80,6 +82,7 @@ class ChatServiceImplTest {
             streamingChatModel,
             compactionService,
             memoryService,
+            queryReformulationService,
             ragConfig,
             meterRegistry);
 
@@ -102,6 +105,9 @@ class ChatServiceImplTest {
 
     private void setupCommonMocks() {
       when(sessionService.getSession(sessionId)).thenReturn(session);
+      when(queryReformulationService.reformulate(
+              eq(sessionId), anyString(), any(InteractionMode.class)))
+          .thenAnswer(invocation -> invocation.getArgument(1)); // Return original query
       when(hybridSearchService.search(eq(sessionId), anyString(), any(InteractionMode.class)))
           .thenReturn(List.of());
       when(hybridSearchService.buildContext(any())).thenReturn("");
@@ -166,6 +172,9 @@ class ChatServiceImplTest {
                 .build();
 
         when(sessionService.getSession(sessionId)).thenReturn(session);
+        when(queryReformulationService.reformulate(
+                eq(sessionId), anyString(), any(InteractionMode.class)))
+            .thenAnswer(invocation -> invocation.getArgument(1)); // Return original query
         when(hybridSearchService.search(eq(sessionId), anyString(), any(InteractionMode.class)))
             .thenReturn(List.of(chunk));
         when(hybridSearchService.buildContext(any())).thenReturn("Context from documents");
@@ -250,6 +259,9 @@ class ChatServiceImplTest {
                 .build();
 
         when(sessionService.getSession(sessionId)).thenReturn(session);
+        when(queryReformulationService.reformulate(
+                eq(sessionId), anyString(), any(InteractionMode.class)))
+            .thenAnswer(invocation -> invocation.getArgument(1)); // Return original query
         when(hybridSearchService.search(eq(sessionId), anyString(), any(InteractionMode.class)))
             .thenReturn(List.of());
         when(hybridSearchService.buildContext(any())).thenReturn("");
