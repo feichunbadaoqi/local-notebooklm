@@ -72,4 +72,15 @@ public interface MemoryService {
    * @return the created memory
    */
   Memory addMemory(UUID sessionId, String content, String type, Float importance);
+
+  /**
+   * Validates that a memory belongs to the specified session.
+   *
+   * @param memoryId the memory ID
+   * @param sessionId the expected session ID
+   * @throws com.flamingo.ai.notebooklm.exception.MemoryNotFoundException if memory not found
+   * @throws com.flamingo.ai.notebooklm.exception.MemoryAccessDeniedException if memory doesn't
+   *     belong to session
+   */
+  void validateMemoryOwnership(UUID memoryId, UUID sessionId);
 }

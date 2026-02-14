@@ -10,6 +10,8 @@ import com.flamingo.ai.notebooklm.api.dto.request.CreateSessionRequest;
 import com.flamingo.ai.notebooklm.api.dto.request.UpdateSessionRequest;
 import com.flamingo.ai.notebooklm.domain.entity.Session;
 import com.flamingo.ai.notebooklm.domain.enums.InteractionMode;
+import com.flamingo.ai.notebooklm.domain.repository.ChatMessageRepository;
+import com.flamingo.ai.notebooklm.domain.repository.DocumentRepository;
 import com.flamingo.ai.notebooklm.domain.repository.SessionRepository;
 import com.flamingo.ai.notebooklm.exception.SessionNotFoundException;
 import io.micrometer.core.instrument.Counter;
@@ -32,6 +34,10 @@ class SessionServiceImplTest {
 
   @Mock private SessionRepository sessionRepository;
 
+  @Mock private DocumentRepository documentRepository;
+
+  @Mock private ChatMessageRepository chatMessageRepository;
+
   @Mock private MeterRegistry meterRegistry;
 
   @Mock private Counter counter;
@@ -40,7 +46,9 @@ class SessionServiceImplTest {
 
   @BeforeEach
   void setUp() {
-    sessionService = new SessionServiceImpl(sessionRepository, meterRegistry);
+    sessionService =
+        new SessionServiceImpl(
+            sessionRepository, documentRepository, chatMessageRepository, meterRegistry);
     when(meterRegistry.counter(any(String.class))).thenReturn(counter);
     when(meterRegistry.counter(any(String.class), any(String.class), any(String.class)))
         .thenReturn(counter);

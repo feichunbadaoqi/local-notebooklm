@@ -12,6 +12,7 @@ public class ApiError {
   // Error codes
   public static final String SESSION_NOT_FOUND = "SESSION_001";
   public static final String MEMORY_NOT_FOUND = "MEMORY_001";
+  public static final String MEMORY_ACCESS_DENIED = "MEMORY_002";
   public static final String DOCUMENT_NOT_FOUND = "DOCUMENT_001";
   public static final String DOCUMENT_PARSE_ERROR = "DOCUMENT_002";
   public static final String DOCUMENT_PROCESSING_ERROR = "DOCUMENT_003";

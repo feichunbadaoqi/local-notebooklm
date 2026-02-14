@@ -3,10 +3,9 @@ package com.flamingo.ai.notebooklm.api.rest;
 import com.flamingo.ai.notebooklm.api.dto.request.CreateSessionRequest;
 import com.flamingo.ai.notebooklm.api.dto.request.UpdateSessionRequest;
 import com.flamingo.ai.notebooklm.api.dto.response.SessionResponse;
+import com.flamingo.ai.notebooklm.api.dto.response.SessionWithStats;
 import com.flamingo.ai.notebooklm.domain.entity.Session;
 import com.flamingo.ai.notebooklm.domain.enums.InteractionMode;
-import com.flamingo.ai.notebooklm.domain.repository.ChatMessageRepository;
-import com.flamingo.ai.notebooklm.domain.repository.DocumentRepository;
 import com.flamingo.ai.notebooklm.service.session.SessionService;
 import jakarta.validation.Valid;
 import java.util.List;
@@ -30,8 +29,6 @@ import org.springframework.web.bind.annotation.RestController;
 public class SessionController {
 
   private final SessionService sessionService;
-  private final DocumentRepository documentRepository;
-  private final ChatMessageRepository chatMessageRepository;
 
   /** Creates a new session. */
   @PostMapping
@@ -46,47 +43,36 @@ public class SessionController {
   /** Gets all sessions. */
   @GetMapping
   public ResponseEntity<List<SessionResponse>> getAllSessions() {
-    List<Session> sessions = sessionService.getAllSessions();
+    List<SessionWithStats> sessionsWithStats = sessionService.getAllSessionsWithStats();
     List<SessionResponse> responses =
-        sessions.stream()
-            .map(
-                session ->
-                    SessionResponse.fromEntity(
-                        session,
-                        documentRepository.countBySessionId(session.getId()),
-                        chatMessageRepository.countBySessionId(session.getId())))
-            .toList();
+        sessionsWithStats.stream().map(SessionWithStats::toResponse).toList();
     return ResponseEntity.ok(responses);
   }
 
   /** Gets a session by ID. */
   @GetMapping("/{sessionId}")
   public ResponseEntity<SessionResponse> getSession(@PathVariable UUID sessionId) {
-    Session session = sessionService.getSession(sessionId);
+    SessionWithStats sessionWithStats = sessionService.getSessionWithStats(sessionId);
     sessionService.touchSession(sessionId);
-    long documentCount = documentRepository.countBySessionId(sessionId);
-    long messageCount = chatMessageRepository.countBySessionId(sessionId);
-    return ResponseEntity.ok(SessionResponse.fromEntity(session, documentCount, messageCount));
+    return ResponseEntity.ok(sessionWithStats.toResponse());
   }
 
   /** Updates a session. */
   @PutMapping("/{sessionId}")
   public ResponseEntity<SessionResponse> updateSession(
       @PathVariable UUID sessionId, @Valid @RequestBody UpdateSessionRequest request) {
-    Session session = sessionService.updateSession(sessionId, request);
-    long documentCount = documentRepository.countBySessionId(sessionId);
-    long messageCount = chatMessageRepository.countBySessionId(sessionId);
-    return ResponseEntity.ok(SessionResponse.fromEntity(session, documentCount, messageCount));
+    sessionService.updateSession(sessionId, request);
+    SessionWithStats sessionWithStats = sessionService.getSessionWithStats(sessionId);
+    return ResponseEntity.ok(sessionWithStats.toResponse());
   }
 
   /** Updates the interaction mode of a session. */
   @PutMapping("/{sessionId}/mode")
   public ResponseEntity<SessionResponse> updateSessionMode(
       @PathVariable UUID sessionId, @RequestBody InteractionMode mode) {
-    Session session = sessionService.updateSessionMode(sessionId, mode);
-    long documentCount = documentRepository.countBySessionId(sessionId);
-    long messageCount = chatMessageRepository.countBySessionId(sessionId);
-    return ResponseEntity.ok(SessionResponse.fromEntity(session, documentCount, messageCount));
+    sessionService.updateSessionMode(sessionId, mode);
+    SessionWithStats sessionWithStats = sessionService.getSessionWithStats(sessionId);
+    return ResponseEntity.ok(sessionWithStats.toResponse());
   }
 
   /** Deletes a session. */

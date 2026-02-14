@@ -7,6 +7,7 @@ import com.flamingo.ai.notebooklm.domain.entity.Memory;
 import com.flamingo.ai.notebooklm.domain.entity.Session;
 import com.flamingo.ai.notebooklm.domain.enums.InteractionMode;
 import com.flamingo.ai.notebooklm.domain.repository.MemoryRepository;
+import com.flamingo.ai.notebooklm.exception.MemoryAccessDeniedException;
 import com.flamingo.ai.notebooklm.exception.MemoryNotFoundException;
 import com.flamingo.ai.notebooklm.service.session.SessionService;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
@@ -246,5 +247,15 @@ public class MemoryServiceImpl implements MemoryService {
     enforceMaxMemories(sessionId);
 
     return saved;
+  }
+
+  @Override
+  @Transactional(readOnly = true)
+  public void validateMemoryOwnership(UUID memoryId, UUID sessionId) {
+    Memory memory = getMemory(memoryId);
+
+    if (!memory.getSession().getId().equals(sessionId)) {
+      throw new MemoryAccessDeniedException(memoryId, sessionId);
+    }
   }
 }

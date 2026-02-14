@@ -77,6 +77,29 @@ public class GlobalExceptionHandler {
                 .build());
   }
 
+  @ExceptionHandler(MemoryAccessDeniedException.class)
+  public ResponseEntity<ApiError> handleMemoryAccessDenied(
+      MemoryAccessDeniedException ex, HttpServletRequest request) {
+
+    incrementErrorCounter("memory_access_denied");
+    String errorId = generateErrorId();
+    log.warn(
+        "Memory access denied [{}]: memory={}, session={}",
+        errorId,
+        ex.getMemoryId(),
+        ex.getSessionId());
+
+    return ResponseEntity.status(HttpStatus.FORBIDDEN)
+        .body(
+            ApiError.builder()
+                .errorId(errorId)
+                .code(ApiError.MEMORY_ACCESS_DENIED)
+                .message("Access to this memory is denied")
+                .path(request.getRequestURI())
+                .timestamp(Instant.now())
+                .build());
+  }
+
   @ExceptionHandler(DocumentProcessingException.class)
   public ResponseEntity<ApiError> handleDocumentProcessing(
       DocumentProcessingException ex, HttpServletRequest request) {

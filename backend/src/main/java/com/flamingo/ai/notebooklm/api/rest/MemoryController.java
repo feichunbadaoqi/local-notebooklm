@@ -51,13 +51,8 @@ public class MemoryController {
   @GetMapping("/{memoryId}")
   public ResponseEntity<MemoryResponse> getMemory(
       @PathVariable UUID sessionId, @PathVariable UUID memoryId) {
+    memoryService.validateMemoryOwnership(memoryId, sessionId);
     Memory memory = memoryService.getMemory(memoryId);
-
-    // Verify memory belongs to this session
-    if (!memory.getSession().getId().equals(sessionId)) {
-      return ResponseEntity.notFound().build();
-    }
-
     return ResponseEntity.ok(MemoryResponse.fromEntity(memory));
   }
 
@@ -91,13 +86,7 @@ public class MemoryController {
   @DeleteMapping("/{memoryId}")
   public ResponseEntity<Void> deleteMemory(
       @PathVariable UUID sessionId, @PathVariable UUID memoryId) {
-
-    // Verify memory belongs to this session before deleting
-    Memory memory = memoryService.getMemory(memoryId);
-    if (!memory.getSession().getId().equals(sessionId)) {
-      return ResponseEntity.notFound().build();
-    }
-
+    memoryService.validateMemoryOwnership(memoryId, sessionId);
     memoryService.deleteMemory(memoryId);
     return ResponseEntity.noContent().build();
   }

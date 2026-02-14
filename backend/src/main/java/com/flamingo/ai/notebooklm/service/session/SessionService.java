@@ -2,6 +2,7 @@ package com.flamingo.ai.notebooklm.service.session;
 
 import com.flamingo.ai.notebooklm.api.dto.request.CreateSessionRequest;
 import com.flamingo.ai.notebooklm.api.dto.request.UpdateSessionRequest;
+import com.flamingo.ai.notebooklm.api.dto.response.SessionWithStats;
 import com.flamingo.ai.notebooklm.domain.entity.Session;
 import com.flamingo.ai.notebooklm.domain.enums.InteractionMode;
 import java.util.List;
@@ -66,4 +67,19 @@ public interface SessionService {
    * @return the updated session
    */
   Session touchSession(UUID sessionId);
+
+  /**
+   * Gets a session by ID with statistics (document count, message count).
+   *
+   * @param sessionId the session ID
+   * @return the session with statistics
+   */
+  SessionWithStats getSessionWithStats(UUID sessionId);
+
+  /**
+   * Gets all sessions with statistics ordered by last accessed time.
+   *
+   * @return list of all sessions with statistics
+   */
+  List<SessionWithStats> getAllSessionsWithStats();
 }

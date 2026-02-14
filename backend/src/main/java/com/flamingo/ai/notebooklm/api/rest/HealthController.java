@@ -1,6 +1,7 @@
 package com.flamingo.ai.notebooklm.api.rest;
 
-import com.flamingo.ai.notebooklm.domain.repository.SessionRepository;
+import com.flamingo.ai.notebooklm.api.dto.response.SystemStats;
+import com.flamingo.ai.notebooklm.service.health.HealthService;
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.Map;
@@ -16,7 +17,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RequiredArgsConstructor
 public class HealthController {
 
-  private final SessionRepository sessionRepository;
+  private final HealthService healthService;
 
   /** Returns a simple health check response. */
   @GetMapping
@@ -30,11 +31,8 @@ public class HealthController {
 
   /** Returns system statistics. */
   @GetMapping("/stats")
-  public ResponseEntity<Map<String, Object>> stats() {
-    Map<String, Object> stats = new HashMap<>();
-    stats.put("totalSessions", sessionRepository.count());
-    stats.put("totalMessages", sessionRepository.countTotalMessages());
-    stats.put("timestamp", LocalDateTime.now());
-    return ResponseEntity.ok(stats);
+  public ResponseEntity<SystemStats> stats() {
+    SystemStats systemStats = healthService.getSystemStats();
+    return ResponseEntity.ok(systemStats);
   }
 }

@@ -2,8 +2,11 @@ package com.flamingo.ai.notebooklm.service.session;
 
 import com.flamingo.ai.notebooklm.api.dto.request.CreateSessionRequest;
 import com.flamingo.ai.notebooklm.api.dto.request.UpdateSessionRequest;
+import com.flamingo.ai.notebooklm.api.dto.response.SessionWithStats;
 import com.flamingo.ai.notebooklm.domain.entity.Session;
 import com.flamingo.ai.notebooklm.domain.enums.InteractionMode;
+import com.flamingo.ai.notebooklm.domain.repository.ChatMessageRepository;
+import com.flamingo.ai.notebooklm.domain.repository.DocumentRepository;
 import com.flamingo.ai.notebooklm.domain.repository.SessionRepository;
 import com.flamingo.ai.notebooklm.exception.SessionNotFoundException;
 import io.micrometer.core.annotation.Timed;
@@ -22,6 +25,8 @@ import org.springframework.transaction.annotation.Transactional;
 public class SessionServiceImpl implements SessionService {
 
   private final SessionRepository sessionRepository;
+  private final DocumentRepository documentRepository;
+  private final ChatMessageRepository chatMessageRepository;
   private final MeterRegistry meterRegistry;
 
   @Override
@@ -105,5 +110,37 @@ public class SessionServiceImpl implements SessionService {
     Session session = getSession(sessionId);
     session.touch();
     return sessionRepository.save(session);
+  }
+
+  @Override
+  @Transactional(readOnly = true)
+  @Timed(value = "session.getWithStats", description = "Time to get session with stats")
+  public SessionWithStats getSessionWithStats(UUID sessionId) {
+    Session session = getSession(sessionId);
+    long documentCount = documentRepository.countBySessionId(sessionId);
+    long messageCount = chatMessageRepository.countBySessionId(sessionId);
+
+    return SessionWithStats.builder()
+        .session(session)
+        .documentCount(documentCount)
+        .messageCount(messageCount)
+        .build();
+  }
+
+  @Override
+  @Transactional(readOnly = true)
+  @Timed(value = "session.getAllWithStats", description = "Time to get all sessions with stats")
+  public List<SessionWithStats> getAllSessionsWithStats() {
+    List<Session> sessions = getAllSessions();
+
+    return sessions.stream()
+        .map(
+            session ->
+                SessionWithStats.builder()
+                    .session(session)
+                    .documentCount(documentRepository.countBySessionId(session.getId()))
+                    .messageCount(chatMessageRepository.countBySessionId(session.getId()))
+                    .build())
+        .toList();
   }
 }
