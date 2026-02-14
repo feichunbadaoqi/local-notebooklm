@@ -13,6 +13,7 @@ import com.flamingo.ai.notebooklm.domain.repository.ChatSummaryRepository;
 import com.flamingo.ai.notebooklm.elasticsearch.DocumentChunk;
 import com.flamingo.ai.notebooklm.service.memory.MemoryService;
 import com.flamingo.ai.notebooklm.service.rag.HybridSearchService;
+import com.flamingo.ai.notebooklm.service.rag.QueryReformulationService;
 import com.flamingo.ai.notebooklm.service.session.SessionService;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.SystemMessage;
@@ -49,6 +50,7 @@ public class ChatServiceImpl implements ChatService {
   private final StreamingChatModel streamingChatModel;
   private final ChatCompactionService compactionService;
   private final MemoryService memoryService;
+  private final QueryReformulationService queryReformulationService;
   private final RagConfig ragConfig;
   private final MeterRegistry meterRegistry;
 
@@ -67,9 +69,13 @@ public class ChatServiceImpl implements ChatService {
     saveMessage(session, MessageRole.USER, userMessage, mode);
     log.debug("User message saved");
 
-    // Retrieve relevant context via RAG
+    // Reformulate query with conversation context
+    String searchQuery = queryReformulationService.reformulate(sessionId, userMessage, mode);
+    log.debug("Original query: {} | Reformulated query: {}", userMessage, searchQuery);
+
+    // Retrieve relevant context via RAG using reformulated query
     log.debug("Starting hybrid search for context...");
-    List<DocumentChunk> relevantChunks = hybridSearchService.search(sessionId, userMessage, mode);
+    List<DocumentChunk> relevantChunks = hybridSearchService.search(sessionId, searchQuery, mode);
     log.debug("Hybrid search returned {} chunks", relevantChunks.size());
     String context = hybridSearchService.buildContext(relevantChunks);
     log.debug("Built context with length: {}", context.length());

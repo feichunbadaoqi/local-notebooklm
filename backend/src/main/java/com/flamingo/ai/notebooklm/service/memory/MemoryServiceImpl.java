@@ -1,8 +1,7 @@
 package com.flamingo.ai.notebooklm.service.memory;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.flamingo.ai.notebooklm.agent.MemoryExtractionAgent;
+import com.flamingo.ai.notebooklm.agent.dto.ExtractedMemory;
 import com.flamingo.ai.notebooklm.config.RagConfig;
 import com.flamingo.ai.notebooklm.domain.entity.Memory;
 import com.flamingo.ai.notebooklm.domain.entity.Session;
@@ -10,10 +9,8 @@ import com.flamingo.ai.notebooklm.domain.enums.InteractionMode;
 import com.flamingo.ai.notebooklm.domain.repository.MemoryRepository;
 import com.flamingo.ai.notebooklm.exception.MemoryNotFoundException;
 import com.flamingo.ai.notebooklm.service.session.SessionService;
-import dev.langchain4j.model.chat.ChatModel;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import io.micrometer.core.instrument.MeterRegistry;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
@@ -32,34 +29,9 @@ public class MemoryServiceImpl implements MemoryService {
 
   private final MemoryRepository memoryRepository;
   private final SessionService sessionService;
-  private final ChatModel chatModel;
+  private final MemoryExtractionAgent agent;
   private final RagConfig ragConfig;
   private final MeterRegistry meterRegistry;
-  private final ObjectMapper objectMapper;
-
-  private static final String EXTRACTION_PROMPT_TEMPLATE =
-      """
-      You are a memory extraction assistant. Analyze the following conversation exchange
-      and extract important facts, user preferences, or insights worth remembering.
-
-      User message: %s
-      Assistant response: %s
-
-      Extract memories in JSON format (return ONLY the JSON array, no other text):
-      [
-        {"type": "fact|preference|insight", "content": "...", "importance": 0.0-1.0}
-      ]
-
-      Rules:
-      - Only extract genuinely important information worth remembering long-term
-      - Facts: specific data points, dates, names, numbers from documents
-      - Preferences: how the user likes information presented or what they focus on
-      - Insights: connections, conclusions, or patterns discovered
-      - Importance: 0.0 (trivial) to 1.0 (critical)
-      - Return empty array [] if nothing worth remembering
-      - Keep each memory concise (1-2 sentences max)
-      - Return ONLY valid JSON, no markdown or explanation
-      """;
 
   @Override
   @Async("documentProcessingExecutor")
@@ -108,11 +80,7 @@ public class MemoryServiceImpl implements MemoryService {
 
   @CircuitBreaker(name = "openai", fallbackMethod = "extractMemoriesFallback")
   private List<ExtractedMemory> extractMemories(String userMessage, String assistantResponse) {
-    String prompt = String.format(EXTRACTION_PROMPT_TEMPLATE, userMessage, assistantResponse);
-
-    String response = chatModel.chat(prompt);
-
-    return parseExtractedMemories(response);
+    return agent.extract(userMessage, assistantResponse);
   }
 
   @SuppressWarnings("unused")
@@ -120,40 +88,6 @@ public class MemoryServiceImpl implements MemoryService {
       String userMessage, String assistantResponse, Throwable t) {
     log.warn("Memory extraction fallback triggered: {}", t.getMessage());
     return List.of();
-  }
-
-  private List<ExtractedMemory> parseExtractedMemories(String response) {
-    try {
-      // Clean up response - remove markdown code blocks if present
-      String cleaned = response.trim();
-      if (cleaned.startsWith("```json")) {
-        cleaned = cleaned.substring(7);
-      } else if (cleaned.startsWith("```")) {
-        cleaned = cleaned.substring(3);
-      }
-      if (cleaned.endsWith("```")) {
-        cleaned = cleaned.substring(0, cleaned.length() - 3);
-      }
-      cleaned = cleaned.trim();
-
-      List<RawMemory> rawMemories =
-          objectMapper.readValue(cleaned, new TypeReference<List<RawMemory>>() {});
-
-      List<ExtractedMemory> result = new ArrayList<>();
-      for (RawMemory raw : rawMemories) {
-        if (isValidMemoryType(raw.type()) && raw.content() != null && !raw.content().isBlank()) {
-          float importance = raw.importance() != null ? raw.importance() : 0.5f;
-          importance = Math.max(0.0f, Math.min(1.0f, importance));
-          result.add(
-              new ExtractedMemory(raw.type().toLowerCase(Locale.ROOT), raw.content(), importance));
-        }
-      }
-      return result;
-
-    } catch (JsonProcessingException e) {
-      log.warn("Failed to parse memory extraction response: {}", e.getMessage());
-      return List.of();
-    }
   }
 
   private boolean isValidMemoryType(String type) {
@@ -313,10 +247,4 @@ public class MemoryServiceImpl implements MemoryService {
 
     return saved;
   }
-
-  /** Record for raw JSON parsing. */
-  private record RawMemory(String type, String content, Float importance) {}
-
-  /** Record for validated extracted memory. */
-  private record ExtractedMemory(String type, String content, float importance) {}
 }

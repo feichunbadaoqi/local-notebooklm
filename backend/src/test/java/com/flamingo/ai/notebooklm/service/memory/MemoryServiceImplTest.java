@@ -10,7 +10,8 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.flamingo.ai.notebooklm.agent.MemoryExtractionAgent;
+import com.flamingo.ai.notebooklm.agent.dto.ExtractedMemory;
 import com.flamingo.ai.notebooklm.config.RagConfig;
 import com.flamingo.ai.notebooklm.domain.entity.Memory;
 import com.flamingo.ai.notebooklm.domain.entity.Session;
@@ -18,7 +19,6 @@ import com.flamingo.ai.notebooklm.domain.enums.InteractionMode;
 import com.flamingo.ai.notebooklm.domain.repository.MemoryRepository;
 import com.flamingo.ai.notebooklm.exception.MemoryNotFoundException;
 import com.flamingo.ai.notebooklm.service.session.SessionService;
-import dev.langchain4j.model.chat.ChatModel;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.time.LocalDateTime;
@@ -40,12 +40,11 @@ class MemoryServiceImplTest {
 
   @Mock private MemoryRepository memoryRepository;
   @Mock private SessionService sessionService;
-  @Mock private ChatModel chatModel;
+  @Mock private MemoryExtractionAgent agent;
   @Mock private MeterRegistry meterRegistry;
   @Mock private Counter counter;
 
   private RagConfig ragConfig;
-  private ObjectMapper objectMapper;
   private MemoryServiceImpl memoryService;
 
   private UUID sessionId;
@@ -56,11 +55,9 @@ class MemoryServiceImplTest {
   void setUp() {
     ragConfig = new RagConfig();
     ragConfig.setMemory(new RagConfig.Memory());
-    objectMapper = new ObjectMapper();
 
     memoryService =
-        new MemoryServiceImpl(
-            memoryRepository, sessionService, chatModel, ragConfig, meterRegistry, objectMapper);
+        new MemoryServiceImpl(memoryRepository, sessionService, agent, ragConfig, meterRegistry);
 
     sessionId = UUID.randomUUID();
     memoryId = UUID.randomUUID();
@@ -287,16 +284,15 @@ class MemoryServiceImplTest {
       memoryService.extractAndSaveAsync(
           sessionId, "user message", "assistant response", InteractionMode.EXPLORING);
 
-      verify(chatModel, never()).chat(anyString());
+      verify(agent, never()).extract(anyString(), anyString());
     }
 
     @Test
     @DisplayName("should extract and save memories from valid response")
     void shouldExtractAndSaveMemoriesFromValidResponse() {
-      String llmResponse =
-          "[{\"type\": \"fact\", \"content\": \"The deadline is March 15th\", \"importance\": 0.8}]";
+      ExtractedMemory extracted = new ExtractedMemory("fact", "The deadline is March 15th", 0.8f);
 
-      when(chatModel.chat(anyString())).thenReturn(llmResponse);
+      when(agent.extract(anyString(), anyString())).thenReturn(List.of(extracted));
       when(sessionService.getSession(sessionId)).thenReturn(session);
       when(memoryRepository.findBySessionIdOrderByImportanceDesc(sessionId)).thenReturn(List.of());
       when(memoryRepository.countBySessionId(sessionId)).thenReturn(1L);
@@ -321,10 +317,9 @@ class MemoryServiceImplTest {
     void shouldSkipMemoriesBelowExtractionThreshold() {
       ragConfig.getMemory().setExtractionThreshold(0.5f);
 
-      String llmResponse =
-          "[{\"type\": \"fact\", \"content\": \"Low importance fact\", \"importance\": 0.2}]";
+      ExtractedMemory extracted = new ExtractedMemory("fact", "Low importance fact", 0.2f);
 
-      when(chatModel.chat(anyString())).thenReturn(llmResponse);
+      when(agent.extract(anyString(), anyString())).thenReturn(List.of(extracted));
       when(sessionService.getSession(sessionId)).thenReturn(session);
       // Note: findBySessionIdOrderByImportanceDesc and countBySessionId not called
       // because importance is below threshold
@@ -339,10 +334,10 @@ class MemoryServiceImplTest {
     void shouldUpdateExistingMemoryForSimilarContent() {
       // Use containment case: "Existing fact" is contained within "Existing fact about something"
       Memory existing = createMemory("Existing fact", Memory.TYPE_FACT, 0.5f);
-      String llmResponse =
-          "[{\"type\": \"fact\", \"content\": \"Existing fact about something new\", \"importance\": 0.8}]";
+      ExtractedMemory extracted =
+          new ExtractedMemory("fact", "Existing fact about something new", 0.8f);
 
-      when(chatModel.chat(anyString())).thenReturn(llmResponse);
+      when(agent.extract(anyString(), anyString())).thenReturn(List.of(extracted));
       when(sessionService.getSession(sessionId)).thenReturn(session);
       when(memoryRepository.findBySessionIdOrderByImportanceDesc(sessionId))
           .thenReturn(List.of(existing));
@@ -357,7 +352,7 @@ class MemoryServiceImplTest {
     @Test
     @DisplayName("should handle empty extraction response")
     void shouldHandleEmptyExtractionResponse() {
-      when(chatModel.chat(anyString())).thenReturn("[]");
+      when(agent.extract(anyString(), anyString())).thenReturn(List.of());
 
       memoryService.extractAndSaveAsync(sessionId, "query", "response", InteractionMode.EXPLORING);
 
@@ -366,9 +361,9 @@ class MemoryServiceImplTest {
     }
 
     @Test
-    @DisplayName("should handle malformed JSON gracefully")
-    void shouldHandleMalformedJsonGracefully() {
-      when(chatModel.chat(anyString())).thenReturn("not valid json");
+    @DisplayName("should handle agent exceptions gracefully")
+    void shouldHandleAgentExceptionsGracefully() {
+      when(agent.extract(anyString(), anyString())).thenThrow(new RuntimeException("Agent error"));
 
       // Should not throw, just log warning
       memoryService.extractAndSaveAsync(sessionId, "query", "response", InteractionMode.EXPLORING);

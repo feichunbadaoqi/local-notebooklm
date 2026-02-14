@@ -91,6 +91,10 @@ rag:
     max-per-session: 50        # Max memories per session
     extraction-threshold: 0.3  # Min importance to save
     context-limit: 5           # Max memories in context
+  query-reformulation:
+    enabled: true              # Enable query reformulation for conversational RAG
+    history-window: 5          # Number of recent messages to consider
+    max-query-length: 500      # Maximum length of reformulated queries
 
 # ============ Interaction Modes ============
 modes:

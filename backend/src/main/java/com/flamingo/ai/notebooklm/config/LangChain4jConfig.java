@@ -43,6 +43,7 @@ public class LangChain4jConfig {
         .temperature(temperature)
         .maxCompletionTokens(maxCompletionTokens)
         .timeout(Duration.ofSeconds(60))
+        .responseFormat("json_object")
         .logRequests(false)
         .logResponses(false)
         .build();

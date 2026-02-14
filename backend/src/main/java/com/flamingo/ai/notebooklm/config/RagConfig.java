@@ -18,6 +18,7 @@ public class RagConfig {
   private Memory memory = new Memory();
   private Metadata metadata = new Metadata();
   private Diversity diversity = new Diversity();
+  private QueryReformulation queryReformulation = new QueryReformulation();
 
   @Getter
   @Setter
@@ -66,5 +67,13 @@ public class RagConfig {
   public static class Diversity {
     private boolean enabled = true;
     private int minChunksPerDocument = 2;
+  }
+
+  @Getter
+  @Setter
+  public static class QueryReformulation {
+    private boolean enabled = true;
+    private int historyWindow = 5;
+    private int maxQueryLength = 500;
   }
 }
