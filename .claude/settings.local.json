@@ -33,7 +33,21 @@
       "Bash(./gradlew bootRun)",
       "Bash(timeout /t 45)",
       "Bash(pwsh -File api-integration-test.ps1)",
-      "Bash(powershell.exe:*)"
+      "Bash(powershell.exe:*)",
+      "Bash(Get-ChildItem -Path E:workspacesaicoderpgnotebooklm -Directory -Name)",
+      "Bash(./gradlew integrationTest:*)",
+      "Bash(Measure-Object -Line)",
+      "Bash(Select-Object -ExpandProperty Lines)",
+      "Bash(find:*)",
+      "Bash(Get-Content .claude/settings.local.json)",
+      "Bash(Select-Object -First 30)",
+      "WebFetch(domain:docs.langchain4j.dev)",
+      "Bash(./gradlew dependencies:*)",
+      "Bash(Select-String \"langchain4j\")",
+      "Bash(Select-Object -First 10)",
+      "Bash(Get-ChildItem -Path \"E:\\\\workspaces\\\\aicoderpg\\\\notebooklm\\\\backend\\\\build\\\\reports\\\\tests\\\\test\" -Recurse -Filter \"*.html\")",
+      "Bash(Select-Object -First 10 FullName)",
+      "Bash(.gradlew test:*)"
     ]
   }
 }

@@ -300,6 +300,7 @@ public class DocumentProcessingService {
 
       int paragraphTokens = estimateTokenCount(paragraph);
 
+      // Case 2: Token limit check
       if (currentTokens + paragraphTokens > chunkSize && currentChunk.length() > 0) {
         // Save current chunk
         chunks.add(currentChunk.toString().trim());
@@ -310,13 +311,27 @@ public class DocumentProcessingService {
         currentTokens = estimateTokenCount(overlapText);
       }
 
-      // Check if adding this paragraph would exceed max chars
+      // Case 3: Character limit check (FIXED to prevent violations)
       if (currentChunk.length() + paragraph.length() > maxCharsPerChunk
           && currentChunk.length() > 0) {
         chunks.add(currentChunk.toString().trim());
         String overlapText = getOverlapText(currentChunk.toString(), overlap);
         currentChunk = new StringBuilder(overlapText);
         currentTokens = estimateTokenCount(overlapText);
+
+        // CRITICAL FIX: Re-check if paragraph still exceeds limit with overlap
+        // This prevents chunks from exceeding maxCharsPerChunk when overlap + paragraph > limit
+        // (e.g., 200-char overlap + 3400-char dense CJK paragraph = 3600 chars > 3500 limit)
+        if (currentChunk.length() + paragraph.length() > maxCharsPerChunk) {
+          // Split this paragraph since overlap + paragraph > limit
+          if (currentChunk.length() > 0) {
+            chunks.add(currentChunk.toString().trim());
+            currentChunk = new StringBuilder();
+            currentTokens = 0;
+          }
+          chunks.addAll(splitLargeParagraph(paragraph, maxCharsPerChunk, overlap));
+          continue; // Don't append below - paragraph was already split and added
+        }
       }
 
       currentChunk.append(paragraph).append("\n\n");
