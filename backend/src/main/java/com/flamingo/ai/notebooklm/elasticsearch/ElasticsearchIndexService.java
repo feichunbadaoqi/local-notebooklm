@@ -4,6 +4,7 @@ import co.elastic.clients.elasticsearch.ElasticsearchClient;
 import co.elastic.clients.elasticsearch._types.mapping.DenseVectorProperty;
 import co.elastic.clients.elasticsearch._types.mapping.Property;
 import co.elastic.clients.elasticsearch._types.mapping.TextProperty;
+import co.elastic.clients.elasticsearch._types.query_dsl.TextQueryType;
 import co.elastic.clients.elasticsearch.core.BulkRequest;
 import co.elastic.clients.elasticsearch.core.BulkResponse;
 import co.elastic.clients.elasticsearch.core.DeleteByQueryRequest;
@@ -298,7 +299,26 @@ public class ElasticsearchIndexService {
                                                               .value(sessionId.toString())))
                                           .must(
                                               m ->
-                                                  m.match(mt -> mt.field("content").query(query)))))
+                                                  m.multiMatch(
+                                                      mm ->
+                                                          mm.fields(
+                                                                  "documentTitle^3.0", // 3x boost
+                                                                  // for title
+                                                                  "sectionTitle^2.0", // 2x boost
+                                                                  // for
+                                                                  // section
+                                                                  "fileName^1.5", // 1.5x boost for
+                                                                  // filename
+                                                                  "content^1.0") // Baseline for
+                                                              // content
+                                                              .query(query)
+                                                              .type(
+                                                                  TextQueryType
+                                                                      .BestFields) // Use best field
+                                                              // score
+                                                              .tieBreaker(
+                                                                  0.3))))) // Consider other fields
+                      // (30%)
                       .size(topK));
 
       log.info("Executing keyword search on index: {}", indexName);
