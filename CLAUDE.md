@@ -299,6 +299,118 @@ Follow strict layer separation:
 - No business logic in Controllers or Repositories
 - Use DTOs for API requests/responses (never expose Entities directly)
 
+#### Extended Layering Guidelines
+
+**CRITICAL: Controllers MUST NOT inject or access repositories directly.**
+
+This is a fundamental SOLID principle violation that leads to:
+- Tight coupling between presentation and data layers
+- Business logic leaking into controllers
+- Inability to change data access without modifying controllers
+- Harder testing (can't mock repositories in controller tests)
+
+**Anti-Pattern (WRONG):**
+```java
+@RestController
+@RequiredArgsConstructor
+public class SessionController {
+    private final SessionService sessionService;
+    private final DocumentRepository documentRepository;  // ❌ WRONG!
+    private final ChatMessageRepository messageRepository;  // ❌ WRONG!
+
+    @GetMapping("/sessions/{id}")
+    public ResponseEntity<SessionResponse> getSession(@PathVariable UUID id) {
+        Session session = sessionService.getSession(id);
+        long documentCount = documentRepository.countBySessionId(id);  // ❌ Business logic in controller!
+        long messageCount = messageRepository.countBySessionId(id);  // ❌ Business logic in controller!
+        return ResponseEntity.ok(SessionResponse.fromEntity(session, documentCount, messageCount));
+    }
+}
+```
+
+**Correct Pattern:**
+```java
+// 1. Define DTO for aggregated data
+@Data
+@Builder
+public class SessionWithStats {
+    private Session session;
+    private long documentCount;
+    private long messageCount;
+
+    public SessionResponse toResponse() {
+        return SessionResponse.fromEntity(session, documentCount, messageCount);
+    }
+}
+
+// 2. Add service method
+public interface SessionService {
+    SessionWithStats getSessionWithStats(UUID sessionId);
+}
+
+@Service
+@RequiredArgsConstructor
+public class SessionServiceImpl implements SessionService {
+    private final SessionRepository sessionRepository;
+    private final DocumentRepository documentRepository;  // ✅ Service layer can access repositories
+    private final ChatMessageRepository messageRepository;
+
+    @Override
+    public SessionWithStats getSessionWithStats(UUID sessionId) {
+        Session session = sessionRepository.findById(sessionId)
+            .orElseThrow(() -> new SessionNotFoundException(sessionId));
+        long documentCount = documentRepository.countBySessionId(sessionId);
+        long messageCount = messageRepository.countBySessionId(sessionId);
+        return SessionWithStats.builder()
+            .session(session)
+            .documentCount(documentCount)
+            .messageCount(messageCount)
+            .build();
+    }
+}
+
+// 3. Controller uses service only
+@RestController
+@RequiredArgsConstructor
+public class SessionController {
+    private final SessionService sessionService;  // ✅ Only inject services
+
+    @GetMapping("/sessions/{id}")
+    public ResponseEntity<SessionResponse> getSession(@PathVariable UUID id) {
+        SessionWithStats stats = sessionService.getSessionWithStats(id);
+        return ResponseEntity.ok(stats.toResponse());
+    }
+}
+```
+
+**Business Validation Rules:**
+- All business validation MUST be in services, not controllers
+- Controllers only validate HTTP-level concerns (required parameters, formats)
+- Services validate business rules (ownership, state transitions, constraints)
+
+**Example:**
+```java
+// ❌ WRONG: Business validation in controller
+@DeleteMapping("/memories/{id}")
+public ResponseEntity<Void> deleteMemory(@PathVariable UUID id, @RequestParam UUID sessionId) {
+    Memory memory = memoryRepository.findById(id)
+        .orElseThrow(() -> new MemoryNotFoundException(id));
+    if (!memory.getSession().getId().equals(sessionId)) {  // ❌ Business logic!
+        throw new MemoryAccessDeniedException();
+    }
+    memoryService.deleteMemory(id);
+    return ResponseEntity.noContent().build();
+}
+
+// ✅ CORRECT: Business validation in service
+@DeleteMapping("/memories/{id}")
+public ResponseEntity<Void> deleteMemory(@PathVariable UUID id, @RequestParam UUID sessionId) {
+    memoryService.validateMemoryOwnership(id, sessionId);  // ✅ Service validates
+    memoryService.deleteMemory(id);
+    return ResponseEntity.noContent().build();
+}
+```
+
 ### Code Organization
 
 #### Java Package Structure
@@ -633,12 +745,396 @@ All metrics exported via Micrometer to `/actuator/prometheus`:
 | RAG | `rag_retrieval_duration_seconds`, `rag_documents_retrieved` |
 | SSE | `sse_connections_active`, `sse_events_sent_total` |
 
+### Metrics Standardization
+
+**CRITICAL: Use @Timed for ALL service-layer timing. Use manual metrics ONLY for business events.**
+
+#### Strategy:
+
+1. **Controller Metrics**: Use Spring Boot's built-in `http.server.requests` (DO NOT add custom @Timed)
+2. **Service Metrics**: Use `@Timed` annotation (provides count + timing + exception tags automatically)
+3. **Business Metrics**: Use manual `Counter`/`Gauge` ONLY for domain events (tokens, documents, extractions)
+
+#### Why @Timed for Services?
+
+`@Timed` automatically provides:
+- `{metric_name}_seconds_count` - total invocations
+- `{metric_name}_seconds_sum` - total time spent
+- `{metric_name}_seconds_max` - maximum execution time
+- `exception="ClassName"` tag - automatic exception tracking
+
+**Anti-Pattern (WRONG - Manual Timer.Sample):**
+```java
+@Service
+@RequiredArgsConstructor
+public class ChatServiceImpl implements ChatService {
+    private final MeterRegistry meterRegistry;
+
+    public Flux<StreamChunkResponse> streamChat(UUID sessionId, String message) {
+        Timer.Sample sample = Timer.start(meterRegistry);  // ❌ Manual timing
+        try {
+            // ... implementation
+            return flux;
+        } finally {
+            sample.stop(meterRegistry.timer("chat.stream.duration"));  // ❌ Verbose, no exception tags
+        }
+    }
+}
+```
+
+**Correct Pattern:**
+```java
+@Service
+@RequiredArgsConstructor
+public class ChatServiceImpl implements ChatService {
+    private final MeterRegistry meterRegistry;
+
+    @Timed(value = "chat.stream", description = "Time to stream chat response")  // ✅ Automatic timing
+    @CircuitBreaker(name = "openai")
+    public Flux<StreamChunkResponse> streamChat(UUID sessionId, String message) {
+        // ... implementation
+        // @Timed handles timing AND exception tracking automatically
+        meterRegistry.counter("chat.messages.generated").increment();  // ✅ Manual counter for business metric
+        return flux;
+    }
+}
+```
+
+#### Controller Metrics (Built-in)
+
+**DO NOT add @Timed to controllers.** Spring Boot's `http.server.requests` provides:
+- Request count, duration, max
+- Tags: `uri`, `method`, `status`, `exception`
+
+**Prometheus Queries:**
+```promql
+# Request rate (requests per second)
+rate(http_server_requests_seconds_count[5m])
+
+# Error rate (5xx errors per second)
+rate(http_server_requests_seconds_count{status=~"5.."}[5m])
+
+# P95 latency by endpoint
+histogram_quantile(0.95, rate(http_server_requests_seconds_bucket[5m]))
+
+# Error rate per endpoint
+sum by (uri, method) (rate(http_server_requests_seconds_count{status=~"5.."}[5m]))
+```
+
+#### Understanding @Timed Output
+
+For `@Timed(value = "chat.stream")`:
+```
+chat_stream_seconds_count{exception="none"} 150
+chat_stream_seconds_count{exception="OpenAiException"} 5
+chat_stream_seconds_sum{exception="none"} 45.2
+chat_stream_seconds_max{exception="none"} 2.1
+```
+
+**Prometheus Queries:**
+```promql
+# Total chat requests
+sum(chat_stream_seconds_count)
+
+# Chat error rate
+sum(rate(chat_stream_seconds_count{exception!="none"}[5m]))
+
+# Chat success rate
+sum(rate(chat_stream_seconds_count{exception="none"}[5m]))
+
+# Average chat latency
+rate(chat_stream_seconds_sum[5m]) / rate(chat_stream_seconds_count[5m])
+```
+
+#### When to Use Manual Metrics
+
+Use manual `Counter`/`Gauge` ONLY for business-specific metrics:
+
+| Metric Type | Use Case | Example |
+|-------------|----------|---------|
+| Counter | Business events | `chat.tokens.generated`, `document.uploads.success`, `memory.extractions.count` |
+| Gauge | Current state | `sse.connections.active`, `documents.processing.current` |
+| Timer (manual) | NEVER | Use @Timed instead |
+
+**Example - Correct Mix:**
+```java
+@Service
+@RequiredArgsConstructor
+public class EmbeddingService {
+    private final MeterRegistry meterRegistry;
+    private final EmbeddingModel embeddingModel;
+
+    @Timed(value = "embedding.embed", description = "Time to embed text")  // ✅ Timing via @Timed
+    @CircuitBreaker(name = "openai")
+    public List<Float> embedText(String text) {
+        try {
+            Response<Embedding> response = embeddingModel.embed(text);
+            meterRegistry.counter("embedding.requests.success").increment();  // ✅ Business counter
+            return response.content().vector();
+        } catch (Exception e) {
+            meterRegistry.counter("embedding.requests.failure").increment();  // ✅ Business counter
+            throw e;  // @Timed will tag with exception="ClassName"
+        }
+    }
+}
+```
+
+#### TimedAspect Configuration
+
+Ensure `TimedAspect` is registered in your configuration:
+
+```java
+@Configuration
+public class MetricsConfig {
+    @Bean
+    public TimedAspect timedAspect(MeterRegistry registry) {
+        return new TimedAspect(registry);
+    }
+}
+```
+
 ## Resilience
 
 - **Circuit Breakers**: OpenAI (30% failure threshold), Elasticsearch (50%)
 - **Retry**: OpenAI rate limits (3 attempts, exponential backoff)
 - **Graceful Degradation**: Return empty results if search fails
 - **Error Responses**: Structured `ApiError` with errorId for log correlation
+
+## Elasticsearch Abstraction
+
+**CRITICAL: Use the generic ElasticsearchIndexOperations interface for all Elasticsearch index operations.**
+
+### Architecture
+
+The Elasticsearch abstraction layer provides:
+- **Generic Interface**: `ElasticsearchIndexOperations<T, ID>` for type-safe index operations
+- **Reusable Pattern**: Support multiple indices with different document types
+- **Backward Compatibility**: Convenience methods for existing code
+- **Spring Integration**: Proper bean injection and configuration
+
+### When to Create a New Index
+
+Create a new Elasticsearch index when you need to:
+1. Store a new document type with different schema
+2. Support vector search on a new data source
+3. Implement domain-specific search logic
+4. Maintain separate indices for different features
+
+### Implementation Guide
+
+#### Step 1: Define Your Document Model
+
+```java
+@Data
+@Builder
+public class KnowledgeArticle {
+    private String id;
+    private UUID organizationId;
+    private String title;
+    private String content;
+    private List<String> tags;
+    private List<Float> embedding;
+    private int tokenCount;
+    private LocalDateTime publishedAt;
+}
+```
+
+#### Step 2: Create Index Service
+
+```java
+package com.company.project.elasticsearch;
+
+import org.springframework.stereotype.Service;
+import lombok.extern.slf4j.Slf4j;
+import java.util.*;
+
+@Service
+@Slf4j
+public class KnowledgeArticleIndexService
+    implements ElasticsearchIndexOperations<KnowledgeArticle, String> {
+
+    private final ElasticsearchIndexService delegate;  // Inject existing bean
+
+    public KnowledgeArticleIndexService(ElasticsearchIndexService elasticsearchIndexService) {
+        this.delegate = elasticsearchIndexService;
+        // Note: ElasticsearchIndexService is configured for DocumentChunk
+        // For KnowledgeArticle, you'd create a new base service or use a different approach
+        // This example shows the pattern
+    }
+
+    @Override
+    public void initIndex() {
+        // Initialize knowledge-articles index with schema
+        delegate.initIndex();
+    }
+
+    @Override
+    public void indexDocuments(List<KnowledgeArticle> articles) {
+        // Convert to Elasticsearch format and index
+        delegate.indexChunks(convertToChunks(articles));
+    }
+
+    @Override
+    public List<KnowledgeArticle> vectorSearch(
+            Map<String, Object> filterCriteria,
+            List<Float> queryEmbedding,
+            int topK) {
+        UUID orgId = (UUID) filterCriteria.get("organizationId");
+        if (orgId == null) {
+            throw new IllegalArgumentException("organizationId filter required");
+        }
+        return delegate.vectorSearch(orgId, queryEmbedding, topK)
+            .stream()
+            .map(this::convertToArticle)
+            .toList();
+    }
+
+    @Override
+    public List<KnowledgeArticle> keywordSearch(
+            Map<String, Object> filterCriteria,
+            String query,
+            int topK) {
+        UUID orgId = (UUID) filterCriteria.get("organizationId");
+        return delegate.keywordSearch(orgId, query, topK)
+            .stream()
+            .map(this::convertToArticle)
+            .toList();
+    }
+
+    @Override
+    public void deleteBy(Map<String, Object> criteria) {
+        if (criteria.containsKey("articleId")) {
+            delegate.deleteByDocumentId((UUID) criteria.get("articleId"));
+        } else if (criteria.containsKey("organizationId")) {
+            delegate.deleteBySessionId((UUID) criteria.get("organizationId"));
+        }
+    }
+
+    @Override
+    public void refresh() {
+        delegate.refresh();
+    }
+
+    @Override
+    public String getIndexName() {
+        return "knowledge-articles";
+    }
+
+    // Convenience methods for backward compatibility
+    public void indexArticles(List<KnowledgeArticle> articles) {
+        indexDocuments(articles);
+    }
+
+    public List<KnowledgeArticle> searchByOrganization(
+            UUID orgId,
+            List<Float> queryEmbedding,
+            int topK) {
+        Map<String, Object> criteria = Map.of("organizationId", orgId);
+        return vectorSearch(criteria, queryEmbedding, topK);
+    }
+
+    private List<DocumentChunk> convertToChunks(List<KnowledgeArticle> articles) {
+        // Conversion logic
+        return Collections.emptyList();
+    }
+
+    private KnowledgeArticle convertToArticle(DocumentChunk chunk) {
+        // Conversion logic
+        return null;
+    }
+}
+```
+
+#### Step 3: Use in Services
+
+```java
+@Service
+@RequiredArgsConstructor
+public class KnowledgeSearchService {
+    private final KnowledgeArticleIndexService articleIndexService;
+    private final EmbeddingService embeddingService;
+
+    public List<KnowledgeArticle> searchArticles(UUID orgId, String query, int topK) {
+        List<Float> embedding = embeddingService.embedText(query);
+        return articleIndexService.searchByOrganization(orgId, embedding, topK);
+    }
+}
+```
+
+### Current Implementation: DocumentChunkIndexService
+
+The project uses `DocumentChunkIndexService` as a wrapper around `ElasticsearchIndexService`:
+
+```java
+@Service
+public class DocumentChunkIndexService
+    implements ElasticsearchIndexOperations<DocumentChunk, String> {
+
+    private final ElasticsearchIndexService delegate;
+
+    public DocumentChunkIndexService(ElasticsearchIndexService elasticsearchIndexService) {
+        this.delegate = elasticsearchIndexService;  // Inject existing bean
+    }
+
+    // Convenience methods for backward compatibility
+    public void indexChunks(List<DocumentChunk> chunks) {
+        indexDocuments(chunks);
+    }
+
+    public List<DocumentChunk> vectorSearch(UUID sessionId, List<Float> queryEmbedding, int topK) {
+        Map<String, Object> criteria = Map.of("sessionId", sessionId);
+        return vectorSearch(criteria, queryEmbedding, topK);
+    }
+
+    public void deleteByDocumentId(UUID documentId) {
+        Map<String, Object> criteria = Map.of("documentId", documentId);
+        deleteBy(criteria);
+    }
+}
+```
+
+### Benefits
+
+1. **Type Safety**: Generic interface ensures correct document types
+2. **Reusability**: Same pattern for all Elasticsearch indices
+3. **Testability**: Easy to mock `ElasticsearchIndexOperations<T, ID>`
+4. **Backward Compatibility**: Convenience methods preserve existing API
+5. **SOLID Compliance**: Depend on abstraction, not concrete implementation
+6. **Future-Proof**: Add new indices without modifying existing code
+
+### Testing with Abstraction
+
+```java
+@ExtendWith(MockitoExtension.class)
+class KnowledgeSearchServiceTest {
+    @Mock
+    private ElasticsearchIndexOperations<KnowledgeArticle, String> articleIndexService;
+
+    @Mock
+    private EmbeddingService embeddingService;
+
+    private KnowledgeSearchService searchService;
+
+    @BeforeEach
+    void setUp() {
+        searchService = new KnowledgeSearchService(
+            (KnowledgeArticleIndexService) articleIndexService,  // Mock via interface
+            embeddingService
+        );
+    }
+
+    @Test
+    void shouldSearchArticlesByOrganization() {
+        // Mock interface methods, not concrete implementation
+        when(articleIndexService.vectorSearch(any(), any(), anyInt()))
+            .thenReturn(List.of(createArticle()));
+
+        List<KnowledgeArticle> results = searchService.searchArticles(orgId, "query", 10);
+
+        assertThat(results).isNotEmpty();
+    }
+}
+```
 
 ## Testing Requirements
 
