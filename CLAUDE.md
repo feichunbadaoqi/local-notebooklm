@@ -16,22 +16,6 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Detailed implementation plan:** See `docs/IMPLEMENTATION_PLAN.md`
 
-## Token Usage Tracking
-
-**IMPORTANT: Always report token usage at the end of every response.**
-
-Format:
-```
----
-📊 Token Usage (this session):
-- Total: X tokens
-- Approximate input: ~Y tokens (Z%)
-- Approximate output: ~W tokens (V%)
-- Input/Output ratio: ~R:1
-```
-
-This helps monitor API costs and identify expensive operations. Report even if minimal changes.
-
 ## Coding Standards & Best Practices
 
 **CRITICAL: Follow these principles for ALL code written in this project.**
