@@ -92,9 +92,29 @@ class SessionIsolationIntegrationTest {
     ragConfig.setDiversity(new RagConfig.Diversity());
 
     diversityReranker = new DiversityReranker(ragConfig, meterRegistry);
+
+    // Mock cross-encoder reranker to return candidates as-is
+    CrossEncoderReranker crossEncoderReranker =
+        new CrossEncoderReranker(null, meterRegistry) {
+          @Override
+          public List<CrossEncoderReranker.ScoredChunk> rerank(
+              String query, List<DocumentChunk> candidates, int topK) {
+            return candidates.stream()
+                .map(
+                    chunk -> new CrossEncoderReranker.ScoredChunk(chunk, chunk.getRelevanceScore()))
+                .limit(topK)
+                .toList();
+          }
+        };
+
     hybridSearchService =
         new HybridSearchService(
-            indexService, embeddingService, diversityReranker, ragConfig, meterRegistry);
+            indexService,
+            embeddingService,
+            diversityReranker,
+            crossEncoderReranker,
+            ragConfig,
+            meterRegistry);
 
     indexService.initIndex();
 

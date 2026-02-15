@@ -32,6 +32,7 @@ class HybridSearchServiceTest {
   @Mock private DocumentChunkIndexService documentChunkIndexService;
   @Mock private EmbeddingService embeddingService;
   @Mock private DiversityReranker diversityReranker;
+  @Mock private CrossEncoderReranker crossEncoderReranker;
   @Mock private MeterRegistry meterRegistry;
   @Mock private Counter counter;
   @Mock private Timer timer;
@@ -53,6 +54,7 @@ class HybridSearchServiceTest {
             documentChunkIndexService,
             embeddingService,
             diversityReranker,
+            crossEncoderReranker,
             ragConfig,
             meterRegistry);
 
@@ -100,6 +102,15 @@ class HybridSearchServiceTest {
             .thenReturn(List.of(vectorChunk1, vectorChunk2));
         when(documentChunkIndexService.keywordSearch(eq(sessionId), anyString(), anyInt()))
             .thenReturn(List.of(keywordChunk1, keywordChunk2));
+        // Mock cross-encoder to return chunks as ScoredChunks
+        when(crossEncoderReranker.rerank(anyString(), any(), anyInt()))
+            .thenAnswer(
+                invocation -> {
+                  List<DocumentChunk> chunks = invocation.getArgument(1);
+                  return chunks.stream()
+                      .map(c -> new CrossEncoderReranker.ScoredChunk(c, 0.8))
+                      .toList();
+                });
         when(diversityReranker.rerank(any(), anyInt()))
             .thenAnswer(invocation -> invocation.getArgument(0));
 
@@ -127,6 +138,8 @@ class HybridSearchServiceTest {
             .thenReturn(List.of());
         when(documentChunkIndexService.keywordSearch(eq(sessionId), anyString(), anyInt()))
             .thenReturn(List.of());
+        // Mock cross-encoder to return empty list
+        when(crossEncoderReranker.rerank(anyString(), any(), anyInt())).thenReturn(List.of());
         when(diversityReranker.rerank(any(), anyInt())).thenReturn(List.of());
 
         List<DocumentChunk> results =
@@ -154,6 +167,15 @@ class HybridSearchServiceTest {
             .thenReturn(List.of(vectorChunk));
         when(documentChunkIndexService.keywordSearch(eq(sessionId), anyString(), anyInt()))
             .thenReturn(List.of(keywordChunk));
+        // Mock cross-encoder to return chunks as ScoredChunks
+        when(crossEncoderReranker.rerank(anyString(), any(), anyInt()))
+            .thenAnswer(
+                invocation -> {
+                  List<DocumentChunk> chunks = invocation.getArgument(1);
+                  return chunks.stream()
+                      .map(c -> new CrossEncoderReranker.ScoredChunk(c, 0.8))
+                      .toList();
+                });
         when(diversityReranker.rerank(any(), anyInt()))
             .thenAnswer(invocation -> invocation.getArgument(0));
 

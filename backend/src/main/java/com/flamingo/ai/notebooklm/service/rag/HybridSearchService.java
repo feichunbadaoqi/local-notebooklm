@@ -27,6 +27,7 @@ public class HybridSearchService {
   private final DocumentChunkIndexService documentChunkIndexService;
   private final EmbeddingService embeddingService;
   private final DiversityReranker diversityReranker;
+  private final CrossEncoderReranker crossEncoderReranker;
   private final RagConfig ragConfig;
   private final MeterRegistry meterRegistry;
 
@@ -95,8 +96,21 @@ public class HybridSearchService {
         applyRrf(vectorResults, keywordResults, topK * candidateMultiplier);
     log.debug("RRF fusion returned {} results", fusedResults.size());
 
+    // Apply cross-encoder reranking (before diversity)
+    log.debug("Applying cross-encoder reranking to {} candidates...", fusedResults.size());
+    List<CrossEncoderReranker.ScoredChunk> rerankedScored =
+        crossEncoderReranker.rerank(query, fusedResults, topK * 2);
+    List<DocumentChunk> rerankedResults =
+        rerankedScored.stream()
+            .peek(
+                scored ->
+                    scored.chunk().setRelevanceScore(scored.score())) // Update score for diversity
+            .map(CrossEncoderReranker.ScoredChunk::chunk)
+            .toList();
+    log.debug("Cross-encoder reranking returned {} results", rerankedResults.size());
+
     // Apply diversity reranking for multi-document support
-    List<DocumentChunk> diverseResults = diversityReranker.rerank(fusedResults, topK);
+    List<DocumentChunk> diverseResults = diversityReranker.rerank(rerankedResults, topK);
     long uniqueDocs = diverseResults.stream().map(DocumentChunk::getDocumentId).distinct().count();
     log.debug(
         "Diversity reranking returned {} results from {} documents",
