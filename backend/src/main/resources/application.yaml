@@ -95,6 +95,9 @@ rag:
     enabled: true              # Enable query reformulation for conversational RAG
     history-window: 5          # Number of recent messages to consider
     max-query-length: 500      # Maximum length of reformulated queries
+  verification:
+    enabled: true              # Enable answer verification (Stage 4)
+    support-threshold: 0.7     # Minimum score (0.0-1.0) for claim to be considered supported
 
 # ============ Interaction Modes ============
 modes:
