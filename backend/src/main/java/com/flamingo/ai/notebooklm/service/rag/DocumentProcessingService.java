@@ -5,7 +5,7 @@ import com.flamingo.ai.notebooklm.domain.entity.Document;
 import com.flamingo.ai.notebooklm.domain.enums.DocumentStatus;
 import com.flamingo.ai.notebooklm.domain.repository.DocumentRepository;
 import com.flamingo.ai.notebooklm.elasticsearch.DocumentChunk;
-import com.flamingo.ai.notebooklm.elasticsearch.ElasticsearchIndexService;
+import com.flamingo.ai.notebooklm.elasticsearch.DocumentChunkIndexService;
 import com.flamingo.ai.notebooklm.exception.DocumentProcessingException;
 import io.micrometer.core.annotation.Timed;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -29,7 +29,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class DocumentProcessingService {
 
   private final DocumentRepository documentRepository;
-  private final ElasticsearchIndexService elasticsearchIndexService;
+  private final DocumentChunkIndexService documentChunkIndexService;
   private final EmbeddingService embeddingService;
   private final DocumentMetadataExtractor metadataExtractor;
   private final RagConfig ragConfig;
@@ -186,7 +186,7 @@ public class DocumentProcessingService {
         log.info("{}", chunk.getContent());
         log.info("===== CHUNK {} FULL CONTENT END =====", i);
       }
-      elasticsearchIndexService.indexChunks(validChunks);
+      documentChunkIndexService.indexChunks(validChunks);
       log.info("Elasticsearch indexing complete for document {}", documentId);
       log.info("========== INDEXING COMPLETE ==========");
 

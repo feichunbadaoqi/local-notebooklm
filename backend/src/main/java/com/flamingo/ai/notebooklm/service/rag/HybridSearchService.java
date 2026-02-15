@@ -3,7 +3,7 @@ package com.flamingo.ai.notebooklm.service.rag;
 import com.flamingo.ai.notebooklm.config.RagConfig;
 import com.flamingo.ai.notebooklm.domain.enums.InteractionMode;
 import com.flamingo.ai.notebooklm.elasticsearch.DocumentChunk;
-import com.flamingo.ai.notebooklm.elasticsearch.ElasticsearchIndexService;
+import com.flamingo.ai.notebooklm.elasticsearch.DocumentChunkIndexService;
 import io.micrometer.core.annotation.Timed;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.util.HashMap;
@@ -24,7 +24,7 @@ import org.springframework.stereotype.Service;
 @Slf4j
 public class HybridSearchService {
 
-  private final ElasticsearchIndexService elasticsearchIndexService;
+  private final DocumentChunkIndexService documentChunkIndexService;
   private final EmbeddingService embeddingService;
   private final DiversityReranker diversityReranker;
   private final RagConfig ragConfig;
@@ -53,19 +53,19 @@ public class HybridSearchService {
     log.debug("Query embedding generated, size: {}", queryEmbedding.size());
     if (queryEmbedding.isEmpty()) {
       log.warn("Failed to generate query embedding, falling back to keyword search only");
-      return elasticsearchIndexService.keywordSearch(sessionId, query, topK);
+      return documentChunkIndexService.keywordSearch(sessionId, query, topK);
     }
 
     // Perform both searches
     log.debug("Performing vector search...");
     List<DocumentChunk> vectorResults =
-        elasticsearchIndexService.vectorSearch(
+        documentChunkIndexService.vectorSearch(
             sessionId, queryEmbedding, topK * candidateMultiplier);
     log.debug("Vector search returned {} results", vectorResults.size());
 
     log.debug("Performing keyword search...");
     List<DocumentChunk> keywordResults =
-        elasticsearchIndexService.keywordSearch(sessionId, query, topK * candidateMultiplier);
+        documentChunkIndexService.keywordSearch(sessionId, query, topK * candidateMultiplier);
     log.debug("Keyword search returned {} results", keywordResults.size());
 
     // Apply RRF fusion to combine results

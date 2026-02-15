@@ -12,7 +12,7 @@ import static org.mockito.Mockito.when;
 import com.flamingo.ai.notebooklm.config.RagConfig;
 import com.flamingo.ai.notebooklm.domain.enums.InteractionMode;
 import com.flamingo.ai.notebooklm.elasticsearch.DocumentChunk;
-import com.flamingo.ai.notebooklm.elasticsearch.ElasticsearchIndexService;
+import com.flamingo.ai.notebooklm.elasticsearch.DocumentChunkIndexService;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
@@ -29,7 +29,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 @ExtendWith(MockitoExtension.class)
 class HybridSearchServiceTest {
 
-  @Mock private ElasticsearchIndexService elasticsearchIndexService;
+  @Mock private DocumentChunkIndexService documentChunkIndexService;
   @Mock private EmbeddingService embeddingService;
   @Mock private DiversityReranker diversityReranker;
   @Mock private MeterRegistry meterRegistry;
@@ -50,7 +50,7 @@ class HybridSearchServiceTest {
 
     hybridSearchService =
         new HybridSearchService(
-            elasticsearchIndexService,
+            documentChunkIndexService,
             embeddingService,
             diversityReranker,
             ragConfig,
@@ -96,9 +96,9 @@ class HybridSearchServiceTest {
         DocumentChunk keywordChunk2 = createChunk("v1", "Vector result 1"); // Same as vector
 
         when(embeddingService.embedText(anyString())).thenReturn(embedding);
-        when(elasticsearchIndexService.vectorSearch(eq(sessionId), eq(embedding), anyInt()))
+        when(documentChunkIndexService.vectorSearch(eq(sessionId), eq(embedding), anyInt()))
             .thenReturn(List.of(vectorChunk1, vectorChunk2));
-        when(elasticsearchIndexService.keywordSearch(eq(sessionId), anyString(), anyInt()))
+        when(documentChunkIndexService.keywordSearch(eq(sessionId), anyString(), anyInt()))
             .thenReturn(List.of(keywordChunk1, keywordChunk2));
         when(diversityReranker.rerank(any(), anyInt()))
             .thenAnswer(invocation -> invocation.getArgument(0));
@@ -108,8 +108,8 @@ class HybridSearchServiceTest {
 
         assertThat(results).isNotEmpty();
         verify(embeddingService).embedText("test query");
-        verify(elasticsearchIndexService).vectorSearch(eq(sessionId), eq(embedding), anyInt());
-        verify(elasticsearchIndexService).keywordSearch(eq(sessionId), eq("test query"), anyInt());
+        verify(documentChunkIndexService).vectorSearch(eq(sessionId), eq(embedding), anyInt());
+        verify(documentChunkIndexService).keywordSearch(eq(sessionId), eq("test query"), anyInt());
       }
     }
 
@@ -123,9 +123,9 @@ class HybridSearchServiceTest {
         List<Float> embedding = List.of(0.1f, 0.2f, 0.3f);
 
         when(embeddingService.embedText(anyString())).thenReturn(embedding);
-        when(elasticsearchIndexService.vectorSearch(eq(sessionId), any(), anyInt()))
+        when(documentChunkIndexService.vectorSearch(eq(sessionId), any(), anyInt()))
             .thenReturn(List.of());
-        when(elasticsearchIndexService.keywordSearch(eq(sessionId), anyString(), anyInt()))
+        when(documentChunkIndexService.keywordSearch(eq(sessionId), anyString(), anyInt()))
             .thenReturn(List.of());
         when(diversityReranker.rerank(any(), anyInt())).thenReturn(List.of());
 
@@ -150,9 +150,9 @@ class HybridSearchServiceTest {
         DocumentChunk keywordChunk = createChunk(sharedId, "Shared content");
 
         when(embeddingService.embedText(anyString())).thenReturn(embedding);
-        when(elasticsearchIndexService.vectorSearch(eq(sessionId), any(), anyInt()))
+        when(documentChunkIndexService.vectorSearch(eq(sessionId), any(), anyInt()))
             .thenReturn(List.of(vectorChunk));
-        when(elasticsearchIndexService.keywordSearch(eq(sessionId), anyString(), anyInt()))
+        when(documentChunkIndexService.keywordSearch(eq(sessionId), anyString(), anyInt()))
             .thenReturn(List.of(keywordChunk));
         when(diversityReranker.rerank(any(), anyInt()))
             .thenAnswer(invocation -> invocation.getArgument(0));

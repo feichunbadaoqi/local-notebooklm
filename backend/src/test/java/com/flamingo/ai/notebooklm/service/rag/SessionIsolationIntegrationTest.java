@@ -10,6 +10,7 @@ import co.elastic.clients.transport.rest_client.RestClientTransport;
 import com.flamingo.ai.notebooklm.config.RagConfig;
 import com.flamingo.ai.notebooklm.domain.enums.InteractionMode;
 import com.flamingo.ai.notebooklm.elasticsearch.DocumentChunk;
+import com.flamingo.ai.notebooklm.elasticsearch.DocumentChunkIndexService;
 import com.flamingo.ai.notebooklm.elasticsearch.ElasticsearchIndexService;
 import dev.langchain4j.model.embedding.EmbeddingModel;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -54,7 +55,8 @@ class SessionIsolationIntegrationTest {
   @Mock private EmbeddingModel embeddingModel;
 
   private ElasticsearchClient elasticsearchClient;
-  private ElasticsearchIndexService indexService;
+  private ElasticsearchIndexService elasticsearchIndexService;
+  private DocumentChunkIndexService indexService;
   private EmbeddingService embeddingService;
   private DiversityReranker diversityReranker;
   private HybridSearchService hybridSearchService;
@@ -79,9 +81,10 @@ class SessionIsolationIntegrationTest {
     elasticsearchClient = new ElasticsearchClient(transport);
 
     meterRegistry = new SimpleMeterRegistry();
-    indexService =
+    elasticsearchIndexService =
         new ElasticsearchIndexService(
             elasticsearchClient, meterRegistry, "notebooklm-chunks", 3072);
+    indexService = new DocumentChunkIndexService(elasticsearchIndexService);
     embeddingService = new EmbeddingService(embeddingModel, meterRegistry);
 
     RagConfig ragConfig = new RagConfig();

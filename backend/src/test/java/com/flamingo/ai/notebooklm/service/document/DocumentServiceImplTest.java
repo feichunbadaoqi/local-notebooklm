@@ -11,7 +11,7 @@ import com.flamingo.ai.notebooklm.domain.entity.Session;
 import com.flamingo.ai.notebooklm.domain.enums.DocumentStatus;
 import com.flamingo.ai.notebooklm.domain.enums.InteractionMode;
 import com.flamingo.ai.notebooklm.domain.repository.DocumentRepository;
-import com.flamingo.ai.notebooklm.elasticsearch.ElasticsearchIndexService;
+import com.flamingo.ai.notebooklm.elasticsearch.DocumentChunkIndexService;
 import com.flamingo.ai.notebooklm.exception.DocumentNotFoundException;
 import com.flamingo.ai.notebooklm.exception.DocumentProcessingException;
 import com.flamingo.ai.notebooklm.service.rag.DocumentProcessingService;
@@ -45,7 +45,7 @@ class DocumentServiceImplTest {
 
   @Mock private DocumentProcessingService documentProcessingService;
 
-  @Mock private ElasticsearchIndexService elasticsearchIndexService;
+  @Mock private DocumentChunkIndexService documentChunkIndexService;
 
   private DocumentServiceImpl documentService;
 
@@ -60,7 +60,7 @@ class DocumentServiceImplTest {
             sessionService,
             meterRegistry,
             documentProcessingService,
-            elasticsearchIndexService);
+            documentChunkIndexService);
 
     sessionId = UUID.randomUUID();
     testSession =

@@ -3,7 +3,7 @@ package com.flamingo.ai.notebooklm.service.document;
 import com.flamingo.ai.notebooklm.domain.entity.Document;
 import com.flamingo.ai.notebooklm.domain.entity.Session;
 import com.flamingo.ai.notebooklm.domain.repository.DocumentRepository;
-import com.flamingo.ai.notebooklm.elasticsearch.ElasticsearchIndexService;
+import com.flamingo.ai.notebooklm.elasticsearch.DocumentChunkIndexService;
 import com.flamingo.ai.notebooklm.exception.DocumentNotFoundException;
 import com.flamingo.ai.notebooklm.exception.DocumentProcessingException;
 import com.flamingo.ai.notebooklm.service.rag.DocumentProcessingService;
@@ -39,19 +39,19 @@ public class DocumentServiceImpl implements DocumentService {
   private final SessionService sessionService;
   private final MeterRegistry meterRegistry;
   private final DocumentProcessingService documentProcessingService;
-  private final ElasticsearchIndexService elasticsearchIndexService;
+  private final DocumentChunkIndexService documentChunkIndexService;
 
   public DocumentServiceImpl(
       DocumentRepository documentRepository,
       SessionService sessionService,
       MeterRegistry meterRegistry,
       @Lazy DocumentProcessingService documentProcessingService,
-      @Lazy ElasticsearchIndexService elasticsearchIndexService) {
+      @Lazy DocumentChunkIndexService documentChunkIndexService) {
     this.documentRepository = documentRepository;
     this.sessionService = sessionService;
     this.meterRegistry = meterRegistry;
     this.documentProcessingService = documentProcessingService;
-    this.elasticsearchIndexService = elasticsearchIndexService;
+    this.documentChunkIndexService = documentChunkIndexService;
   }
 
   @Override
@@ -138,7 +138,7 @@ public class DocumentServiceImpl implements DocumentService {
     Document document = getDocument(documentId);
 
     // Delete chunks from Elasticsearch
-    elasticsearchIndexService.deleteByDocumentId(documentId);
+    documentChunkIndexService.deleteByDocumentId(documentId);
 
     documentRepository.delete(document);
     meterRegistry.counter("document.deleted").increment();
