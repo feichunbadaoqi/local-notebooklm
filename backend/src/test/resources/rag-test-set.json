@@ -1,0 +1,181 @@
+{
+  "description": "RAG evaluation test set - tracks retrieval quality metrics",
+  "testCases": [
+    {
+      "id": "ml-001",
+      "description": "Basic question about machine learning definition",
+      "query": "What is machine learning?",
+      "expectedChunks": [
+        {
+          "contentMustContain": ["machine learning", "algorithm", "data"],
+          "minRelevanceRank": 3
+        }
+      ],
+      "expectedAnswer": {
+        "mustContain": ["machine learning", "algorithm"],
+        "mustNotContain": ["quantum computing", "blockchain"]
+      },
+      "difficulty": "easy"
+    },
+    {
+      "id": "ml-002",
+      "description": "Comparison question requiring multiple sources",
+      "query": "What are the differences between supervised and unsupervised learning?",
+      "expectedChunks": [
+        {
+          "contentMustContain": ["supervised learning", "labeled data"],
+          "minRelevanceRank": 5
+        },
+        {
+          "contentMustContain": ["unsupervised learning", "unlabeled"],
+          "minRelevanceRank": 5
+        }
+      ],
+      "expectedAnswer": {
+        "mustContain": ["supervised", "unsupervised", "label"],
+        "mustNotContain": []
+      },
+      "difficulty": "medium"
+    },
+    {
+      "id": "ml-003",
+      "description": "Specific technical question about neural networks",
+      "query": "How does backpropagation work in neural networks?",
+      "expectedChunks": [
+        {
+          "contentMustContain": ["backpropagation", "gradient", "chain rule"],
+          "minRelevanceRank": 3
+        }
+      ],
+      "expectedAnswer": {
+        "mustContain": ["gradient", "backward", "weight"],
+        "mustNotContain": []
+      },
+      "difficulty": "medium"
+    },
+    {
+      "id": "ml-004",
+      "description": "Question about model overfitting",
+      "query": "What causes overfitting and how can it be prevented?",
+      "expectedChunks": [
+        {
+          "contentMustContain": ["overfitting", "training data"],
+          "minRelevanceRank": 3
+        },
+        {
+          "contentMustContain": ["regularization", "validation"],
+          "minRelevanceRank": 5
+        }
+      ],
+      "expectedAnswer": {
+        "mustContain": ["overfit", "generalization"],
+        "mustNotContain": []
+      },
+      "difficulty": "medium"
+    },
+    {
+      "id": "ml-005",
+      "description": "Specific algorithm question",
+      "query": "Explain how the Random Forest algorithm works",
+      "expectedChunks": [
+        {
+          "contentMustContain": ["random forest", "decision tree"],
+          "minRelevanceRank": 3
+        }
+      ],
+      "expectedAnswer": {
+        "mustContain": ["tree", "ensemble", "bootstrap"],
+        "mustNotContain": ["neural network"]
+      },
+      "difficulty": "medium"
+    },
+    {
+      "id": "dl-001",
+      "description": "Deep learning architecture question",
+      "query": "What is a convolutional neural network (CNN)?",
+      "expectedChunks": [
+        {
+          "contentMustContain": ["CNN", "convolutional", "image"],
+          "minRelevanceRank": 3
+        }
+      ],
+      "expectedAnswer": {
+        "mustContain": ["convolutional", "layer", "feature"],
+        "mustNotContain": ["recurrent"]
+      },
+      "difficulty": "easy"
+    },
+    {
+      "id": "dl-002",
+      "description": "Question about RNN architecture",
+      "query": "How do recurrent neural networks process sequential data?",
+      "expectedChunks": [
+        {
+          "contentMustContain": ["recurrent", "RNN", "sequence"],
+          "minRelevanceRank": 3
+        }
+      ],
+      "expectedAnswer": {
+        "mustContain": ["recurrent", "sequence", "state"],
+        "mustNotContain": []
+      },
+      "difficulty": "medium"
+    },
+    {
+      "id": "dl-003",
+      "description": "Comparison between CNN and RNN",
+      "query": "When should I use CNN versus RNN?",
+      "expectedChunks": [
+        {
+          "contentMustContain": ["CNN", "image"],
+          "minRelevanceRank": 5
+        },
+        {
+          "contentMustContain": ["RNN", "sequence"],
+          "minRelevanceRank": 5
+        }
+      ],
+      "expectedAnswer": {
+        "mustContain": ["CNN", "RNN"],
+        "mustNotContain": []
+      },
+      "difficulty": "hard"
+    },
+    {
+      "id": "opt-001",
+      "description": "Question about optimization algorithms",
+      "query": "What is the Adam optimizer and how does it differ from SGD?",
+      "expectedChunks": [
+        {
+          "contentMustContain": ["Adam", "adaptive"],
+          "minRelevanceRank": 3
+        },
+        {
+          "contentMustContain": ["SGD", "gradient descent"],
+          "minRelevanceRank": 5
+        }
+      ],
+      "expectedAnswer": {
+        "mustContain": ["Adam", "momentum", "learning rate"],
+        "mustNotContain": []
+      },
+      "difficulty": "medium"
+    },
+    {
+      "id": "opt-002",
+      "description": "Question about learning rate schedules",
+      "query": "Why use learning rate scheduling in neural network training?",
+      "expectedChunks": [
+        {
+          "contentMustContain": ["learning rate", "schedule"],
+          "minRelevanceRank": 3
+        }
+      ],
+      "expectedAnswer": {
+        "mustContain": ["learning rate", "convergence"],
+        "mustNotContain": []
+      },
+      "difficulty": "medium"
+    }
+  ]
+}
