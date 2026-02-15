@@ -61,6 +61,8 @@ class ChatServiceImplTest {
   @Mock private Timer timer;
   @Mock private Timer.Sample timerSample;
 
+  @Mock private com.flamingo.ai.notebooklm.service.rag.RetrievalConfidenceService confidenceService;
+
   private RagConfig ragConfig;
   private ChatServiceImpl chatService;
 
@@ -84,7 +86,8 @@ class ChatServiceImplTest {
             memoryService,
             queryReformulationService,
             ragConfig,
-            meterRegistry);
+            meterRegistry,
+            confidenceService);
 
     sessionId = UUID.randomUUID();
     session =
@@ -108,9 +111,27 @@ class ChatServiceImplTest {
       when(queryReformulationService.reformulate(
               eq(sessionId), anyString(), any(InteractionMode.class)))
           .thenAnswer(invocation -> invocation.getArgument(1)); // Return original query
-      when(hybridSearchService.search(eq(sessionId), anyString(), any(InteractionMode.class)))
-          .thenReturn(List.of());
+
+      // Mock searchWithDetails to return SearchResult
+      HybridSearchService.SearchResult searchResult =
+          new HybridSearchService.SearchResult(List.of(), List.of(), List.of());
+      when(hybridSearchService.searchWithDetails(
+              eq(sessionId), anyString(), any(InteractionMode.class)))
+          .thenReturn(searchResult);
+
       when(hybridSearchService.buildContext(any())).thenReturn("");
+
+      // Mock confidence service to return HIGH confidence by default
+      com.flamingo.ai.notebooklm.service.rag.RetrievalConfidenceService.ConfidenceScore
+          highConfidence =
+              new com.flamingo.ai.notebooklm.service.rag.RetrievalConfidenceService.ConfidenceScore(
+                  0.8,
+                  com.flamingo.ai.notebooklm.service.rag.RetrievalConfidenceService.ConfidenceLevel
+                      .HIGH,
+                  "High confidence");
+      when(confidenceService.calculateConfidence(any(), any(), any(), anyString()))
+          .thenReturn(highConfidence);
+
       when(chatSummaryRepository.findBySessionIdOrderByCreatedAtDesc(sessionId))
           .thenReturn(List.of());
       when(chatMessageRepository.findRecentNonCompactedMessages(eq(sessionId), anyInt()))
@@ -175,9 +196,28 @@ class ChatServiceImplTest {
         when(queryReformulationService.reformulate(
                 eq(sessionId), anyString(), any(InteractionMode.class)))
             .thenAnswer(invocation -> invocation.getArgument(1)); // Return original query
-        when(hybridSearchService.search(eq(sessionId), anyString(), any(InteractionMode.class)))
-            .thenReturn(List.of(chunk));
+
+        // Mock searchWithDetails to return chunk in final results
+        HybridSearchService.SearchResult searchResult =
+            new HybridSearchService.SearchResult(List.of(chunk), List.of(chunk), List.of(chunk));
+        when(hybridSearchService.searchWithDetails(
+                eq(sessionId), anyString(), any(InteractionMode.class)))
+            .thenReturn(searchResult);
+
         when(hybridSearchService.buildContext(any())).thenReturn("Context from documents");
+
+        // Mock confidence service to return HIGH confidence
+        com.flamingo.ai.notebooklm.service.rag.RetrievalConfidenceService.ConfidenceScore
+            highConfidence =
+                new com.flamingo.ai.notebooklm.service.rag.RetrievalConfidenceService
+                    .ConfidenceScore(
+                    0.8,
+                    com.flamingo.ai.notebooklm.service.rag.RetrievalConfidenceService
+                        .ConfidenceLevel.HIGH,
+                    "High confidence");
+        when(confidenceService.calculateConfidence(any(), any(), any(), anyString()))
+            .thenReturn(highConfidence);
+
         when(chatSummaryRepository.findBySessionIdOrderByCreatedAtDesc(sessionId))
             .thenReturn(List.of());
         when(chatMessageRepository.findRecentNonCompactedMessages(eq(sessionId), anyInt()))
@@ -262,9 +302,28 @@ class ChatServiceImplTest {
         when(queryReformulationService.reformulate(
                 eq(sessionId), anyString(), any(InteractionMode.class)))
             .thenAnswer(invocation -> invocation.getArgument(1)); // Return original query
-        when(hybridSearchService.search(eq(sessionId), anyString(), any(InteractionMode.class)))
-            .thenReturn(List.of());
+
+        // Mock searchWithDetails to return empty results
+        HybridSearchService.SearchResult searchResult =
+            new HybridSearchService.SearchResult(List.of(), List.of(), List.of());
+        when(hybridSearchService.searchWithDetails(
+                eq(sessionId), anyString(), any(InteractionMode.class)))
+            .thenReturn(searchResult);
+
         when(hybridSearchService.buildContext(any())).thenReturn("");
+
+        // Mock confidence service to return HIGH confidence
+        com.flamingo.ai.notebooklm.service.rag.RetrievalConfidenceService.ConfidenceScore
+            highConfidence =
+                new com.flamingo.ai.notebooklm.service.rag.RetrievalConfidenceService
+                    .ConfidenceScore(
+                    0.8,
+                    com.flamingo.ai.notebooklm.service.rag.RetrievalConfidenceService
+                        .ConfidenceLevel.HIGH,
+                    "High confidence");
+        when(confidenceService.calculateConfidence(any(), any(), any(), anyString()))
+            .thenReturn(highConfidence);
+
         when(chatSummaryRepository.findBySessionIdOrderByCreatedAtDesc(sessionId))
             .thenReturn(List.of());
         when(chatMessageRepository.findRecentNonCompactedMessages(eq(sessionId), anyInt()))

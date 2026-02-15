@@ -53,6 +53,7 @@ public class ChatServiceImpl implements ChatService {
   private final QueryReformulationService queryReformulationService;
   private final RagConfig ragConfig;
   private final MeterRegistry meterRegistry;
+  private final com.flamingo.ai.notebooklm.service.rag.RetrievalConfidenceService confidenceService;
 
   @Override
   @Timed(value = "chat.stream", description = "Time to stream chat response")
@@ -73,16 +74,45 @@ public class ChatServiceImpl implements ChatService {
     String searchQuery = queryReformulationService.reformulate(sessionId, userMessage, mode);
     log.debug("Original query: {} | Reformulated query: {}", userMessage, searchQuery);
 
-    // Retrieve relevant context via RAG using reformulated query
+    // Retrieve relevant context via RAG using reformulated query (with details for confidence)
     log.debug("Starting hybrid search for context...");
-    List<DocumentChunk> relevantChunks = hybridSearchService.search(sessionId, searchQuery, mode);
+    HybridSearchService.SearchResult searchResult =
+        hybridSearchService.searchWithDetails(sessionId, searchQuery, mode);
+    List<DocumentChunk> relevantChunks = searchResult.finalResults();
     log.debug("Hybrid search returned {} chunks", relevantChunks.size());
+
+    // Calculate retrieval confidence
+    com.flamingo.ai.notebooklm.service.rag.RetrievalConfidenceService.ConfidenceScore confidence =
+        confidenceService.calculateConfidence(
+            searchResult.vectorResults(), searchResult.bm25Results(), relevantChunks, searchQuery);
+    log.info("Retrieval confidence: {} ({})", confidence.level(), confidence.explanation());
+
+    // Check if confidence is too low to answer
+    if (confidence.level()
+        == com.flamingo.ai.notebooklm.service.rag.RetrievalConfidenceService.ConfidenceLevel.LOW) {
+      log.warn("Low confidence retrieval, returning insufficient information message");
+      return Flux.just(
+          StreamChunkResponse.token(
+              "I don't have enough information in the uploaded documents to answer this question confidently. "
+                  + "Could you rephrase your question or upload more relevant documents?"),
+          StreamChunkResponse.done(UUID.randomUUID().toString(), 0, 0));
+    }
+
     String context = hybridSearchService.buildContext(relevantChunks);
     log.debug("Built context with length: {}", context.length());
 
-    // Build conversation context
+    // Build conversation context (add uncertainty note for medium confidence)
+    String systemPromptSuffix = "";
+    if (confidence.level()
+        == com.flamingo.ai.notebooklm.service.rag.RetrievalConfidenceService.ConfidenceLevel
+            .MEDIUM) {
+      systemPromptSuffix =
+          "\n\nNote: Evidence quality is moderate. "
+              + "Be explicit about uncertainty and cite specific passages.";
+    }
+
     List<dev.langchain4j.data.message.ChatMessage> messages =
-        buildConversationContext(session, mode, context, userMessage);
+        buildConversationContext(session, mode, context, userMessage, systemPromptSuffix);
     log.debug("Built conversation context with {} messages", messages.size());
 
     // Create sink for streaming
@@ -191,12 +221,16 @@ public class ChatServiceImpl implements ChatService {
   }
 
   private List<dev.langchain4j.data.message.ChatMessage> buildConversationContext(
-      Session session, InteractionMode mode, String ragContext, String currentMessage) {
+      Session session,
+      InteractionMode mode,
+      String ragContext,
+      String currentMessage,
+      String systemPromptSuffix) {
 
     List<dev.langchain4j.data.message.ChatMessage> messages = new ArrayList<>();
 
     // System prompt based on mode
-    String systemPrompt = buildSystemPrompt(mode, ragContext);
+    String systemPrompt = buildSystemPrompt(mode, ragContext) + systemPromptSuffix;
     messages.add(SystemMessage.from(systemPrompt));
 
     // Add relevant memories

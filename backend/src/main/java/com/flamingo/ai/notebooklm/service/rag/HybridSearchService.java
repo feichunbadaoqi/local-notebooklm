@@ -32,6 +32,12 @@ public class HybridSearchService {
 
   private static final int RRF_K = 60;
 
+  /** Search result with intermediate retrieval steps for confidence calculation. */
+  public record SearchResult(
+      List<DocumentChunk> vectorResults,
+      List<DocumentChunk> bm25Results,
+      List<DocumentChunk> finalResults) {}
+
   /**
    * Performs hybrid search combining vector and keyword search with RRF fusion.
    *
@@ -42,6 +48,20 @@ public class HybridSearchService {
    */
   @Timed(value = "rag.search", description = "Time for hybrid search")
   public List<DocumentChunk> search(UUID sessionId, String query, InteractionMode mode) {
+    return searchWithDetails(sessionId, query, mode).finalResults();
+  }
+
+  /**
+   * Performs hybrid search and returns detailed results including intermediate steps. Used for
+   * confidence calculation.
+   *
+   * @param sessionId the session to search within
+   * @param query the search query
+   * @param mode the interaction mode (determines number of results)
+   * @return SearchResult with vector, BM25, and final results
+   */
+  @Timed(value = "rag.searchdetails", description = "Time for hybrid search with details")
+  public SearchResult searchWithDetails(UUID sessionId, String query, InteractionMode mode) {
     log.debug("Starting hybrid search for session {} with query: {}", sessionId, query);
     int topK = mode.getRetrievalCount();
     int candidateMultiplier = ragConfig.getRetrieval().getCandidatesMultiplier();
@@ -53,7 +73,9 @@ public class HybridSearchService {
     log.debug("Query embedding generated, size: {}", queryEmbedding.size());
     if (queryEmbedding.isEmpty()) {
       log.warn("Failed to generate query embedding, falling back to keyword search only");
-      return documentChunkIndexService.keywordSearch(sessionId, query, topK);
+      List<DocumentChunk> keywordOnly =
+          documentChunkIndexService.keywordSearch(sessionId, query, topK);
+      return new SearchResult(List.of(), keywordOnly, keywordOnly);
     }
 
     // Perform both searches
@@ -84,7 +106,7 @@ public class HybridSearchService {
     meterRegistry.counter("rag.search.success").increment();
     meterRegistry.gauge("rag.search.results", diverseResults, List::size);
 
-    return diverseResults;
+    return new SearchResult(vectorResults, keywordResults, diverseResults);
   }
 
   /**
