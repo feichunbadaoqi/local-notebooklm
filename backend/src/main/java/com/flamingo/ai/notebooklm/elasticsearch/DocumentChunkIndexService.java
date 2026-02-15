@@ -113,6 +113,21 @@ public class DocumentChunkIndexService
   }
 
   /**
+   * Performs vector search on a specific embedding field (Stage 2.2 - multiple embeddings).
+   *
+   * @param sessionId the session ID
+   * @param embeddingField the field to search ("embedding", "titleEmbedding", or
+   *     "contentEmbedding")
+   * @param queryEmbedding the query embedding vector
+   * @param topK number of results to return
+   * @return list of matching document chunks
+   */
+  public List<DocumentChunk> vectorSearchByField(
+      UUID sessionId, String embeddingField, List<Float> queryEmbedding, int topK) {
+    return delegate.vectorSearchByField(sessionId, embeddingField, queryEmbedding, topK);
+  }
+
+  /**
    * Deletes all chunks for a document (convenience method).
    *
    * @param documentId the document ID

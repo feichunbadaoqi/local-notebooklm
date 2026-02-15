@@ -98,8 +98,13 @@ class HybridSearchServiceTest {
         DocumentChunk keywordChunk2 = createChunk("v1", "Vector result 1"); // Same as vector
 
         when(embeddingService.embedQuery(anyString())).thenReturn(embedding);
-        when(documentChunkIndexService.vectorSearch(eq(sessionId), eq(embedding), anyInt()))
-            .thenReturn(List.of(vectorChunk1, vectorChunk2));
+        // Mock dual vector searches (Stage 2.2 - title and content embeddings)
+        when(documentChunkIndexService.vectorSearchByField(
+                eq(sessionId), eq("titleEmbedding"), eq(embedding), anyInt()))
+            .thenReturn(List.of(vectorChunk1));
+        when(documentChunkIndexService.vectorSearchByField(
+                eq(sessionId), eq("contentEmbedding"), eq(embedding), anyInt()))
+            .thenReturn(List.of(vectorChunk2));
         when(documentChunkIndexService.keywordSearch(eq(sessionId), anyString(), anyInt()))
             .thenReturn(List.of(keywordChunk1, keywordChunk2));
         // Mock cross-encoder to return chunks as ScoredChunks
@@ -119,7 +124,10 @@ class HybridSearchServiceTest {
 
         assertThat(results).isNotEmpty();
         verify(embeddingService).embedQuery("test query");
-        verify(documentChunkIndexService).vectorSearch(eq(sessionId), eq(embedding), anyInt());
+        verify(documentChunkIndexService)
+            .vectorSearchByField(eq(sessionId), eq("titleEmbedding"), eq(embedding), anyInt());
+        verify(documentChunkIndexService)
+            .vectorSearchByField(eq(sessionId), eq("contentEmbedding"), eq(embedding), anyInt());
         verify(documentChunkIndexService).keywordSearch(eq(sessionId), eq("test query"), anyInt());
       }
     }
@@ -134,7 +142,12 @@ class HybridSearchServiceTest {
         List<Float> embedding = List.of(0.1f, 0.2f, 0.3f);
 
         when(embeddingService.embedQuery(anyString())).thenReturn(embedding);
-        when(documentChunkIndexService.vectorSearch(eq(sessionId), any(), anyInt()))
+        // Mock dual vector searches to return empty
+        when(documentChunkIndexService.vectorSearchByField(
+                eq(sessionId), eq("titleEmbedding"), any(), anyInt()))
+            .thenReturn(List.of());
+        when(documentChunkIndexService.vectorSearchByField(
+                eq(sessionId), eq("contentEmbedding"), any(), anyInt()))
             .thenReturn(List.of());
         when(documentChunkIndexService.keywordSearch(eq(sessionId), anyString(), anyInt()))
             .thenReturn(List.of());
@@ -163,8 +176,13 @@ class HybridSearchServiceTest {
         DocumentChunk keywordChunk = createChunk(sharedId, "Shared content");
 
         when(embeddingService.embedQuery(anyString())).thenReturn(embedding);
-        when(documentChunkIndexService.vectorSearch(eq(sessionId), any(), anyInt()))
+        // Mock dual vector searches
+        when(documentChunkIndexService.vectorSearchByField(
+                eq(sessionId), eq("titleEmbedding"), any(), anyInt()))
             .thenReturn(List.of(vectorChunk));
+        when(documentChunkIndexService.vectorSearchByField(
+                eq(sessionId), eq("contentEmbedding"), any(), anyInt()))
+            .thenReturn(List.of());
         when(documentChunkIndexService.keywordSearch(eq(sessionId), anyString(), anyInt()))
             .thenReturn(List.of(keywordChunk));
         // Mock cross-encoder to return chunks as ScoredChunks

@@ -79,12 +79,35 @@ public class HybridSearchService {
       return new SearchResult(List.of(), keywordOnly, keywordOnly);
     }
 
-    // Perform both searches
-    log.debug("Performing vector search...");
-    List<DocumentChunk> vectorResults =
-        documentChunkIndexService.vectorSearch(
-            sessionId, queryEmbedding, topK * candidateMultiplier);
-    log.debug("Vector search returned {} results", vectorResults.size());
+    // Perform dual vector searches (Stage 2.2 - title and content embeddings)
+    // Fallback to legacy embedding field if new fields don't exist
+    List<DocumentChunk> vectorResults;
+    try {
+      log.debug("Performing dual vector searches (title + content)...");
+      List<DocumentChunk> titleVectorResults =
+          documentChunkIndexService.vectorSearchByField(
+              sessionId, "titleEmbedding", queryEmbedding, topK * candidateMultiplier);
+      log.debug("Title vector search returned {} results", titleVectorResults.size());
+
+      List<DocumentChunk> contentVectorResults =
+          documentChunkIndexService.vectorSearchByField(
+              sessionId, "contentEmbedding", queryEmbedding, topK * candidateMultiplier);
+      log.debug("Content vector search returned {} results", contentVectorResults.size());
+
+      // Fuse title and content results with RRF
+      vectorResults =
+          applyRrf(titleVectorResults, contentVectorResults, topK * candidateMultiplier);
+      log.debug("Fused vector search (title+content) returned {} results", vectorResults.size());
+    } catch (Exception e) {
+      log.warn(
+          "Dual vector search failed ({}), falling back to legacy embedding field: {}",
+          e.getClass().getSimpleName(),
+          e.getMessage());
+      vectorResults =
+          documentChunkIndexService.vectorSearch(
+              sessionId, queryEmbedding, topK * candidateMultiplier);
+      log.debug("Legacy vector search returned {} results", vectorResults.size());
+    }
 
     log.debug("Performing keyword search...");
     List<DocumentChunk> keywordResults =

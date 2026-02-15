@@ -104,6 +104,21 @@ public class ElasticsearchIndexService {
                 p.denseVector(
                     DenseVectorProperty.of(
                         d -> d.dims(vectorDimensions).index(true).similarity("cosine")))));
+    // Multiple embeddings for improved retrieval (Stage 2.2)
+    properties.put(
+        "titleEmbedding",
+        Property.of(
+            p ->
+                p.denseVector(
+                    DenseVectorProperty.of(
+                        d -> d.dims(vectorDimensions).index(true).similarity("cosine")))));
+    properties.put(
+        "contentEmbedding",
+        Property.of(
+            p ->
+                p.denseVector(
+                    DenseVectorProperty.of(
+                        d -> d.dims(vectorDimensions).index(true).similarity("cosine")))));
     // Metadata fields for enhanced retrieval (RAG optimization Phase 1)
     properties.put(
         "documentTitle", Property.of(p -> p.text(TextProperty.of(t -> t.analyzer(textAnalyzer)))));
@@ -140,6 +155,13 @@ public class ElasticsearchIndexService {
         document.put("content", chunk.getContent());
         document.put("tokenCount", chunk.getTokenCount());
         document.put("embedding", chunk.getEmbedding());
+        // Multiple embeddings (Stage 2.2)
+        if (chunk.getTitleEmbedding() != null) {
+          document.put("titleEmbedding", chunk.getTitleEmbedding());
+        }
+        if (chunk.getContentEmbedding() != null) {
+          document.put("contentEmbedding", chunk.getContentEmbedding());
+        }
         // Metadata fields for enhanced retrieval
         if (chunk.getDocumentTitle() != null) {
           document.put("documentTitle", chunk.getDocumentTitle());
@@ -154,18 +176,6 @@ public class ElasticsearchIndexService {
         if (chunk.getEnrichedContent() != null) {
           document.put("enrichedContent", chunk.getEnrichedContent());
         }
-
-        log.info(
-            "Indexing chunk {}: sessionId={}, documentId={}, file={}, contentLength={}, embeddingSize={}",
-            chunk.getId(),
-            chunk.getSessionId(),
-            chunk.getDocumentId(),
-            chunk.getFileName(),
-            chunk.getContent().length(),
-            chunk.getEmbedding() != null ? chunk.getEmbedding().size() : 0);
-        log.info("===== FULL CHUNK CONTENT START =====");
-        log.info("{}", chunk.getContent());
-        log.info("===== FULL CHUNK CONTENT END =====");
 
         bulkBuilder.operations(
             op -> op.index(idx -> idx.index(indexName).id(chunk.getId()).document(document)));
@@ -243,24 +253,6 @@ public class ElasticsearchIndexService {
           "Vector search returned {} results (total hits: {})",
           results.size(),
           response.hits().total() != null ? response.hits().total().value() : "unknown");
-      if (!results.isEmpty()) {
-        for (int i = 0; i < Math.min(3, results.size()); i++) {
-          DocumentChunk result = results.get(i);
-          log.info(
-              "Result {}: sessionId={}, documentId={}, file={}, chunkIndex={}, score={}",
-              i,
-              result.getSessionId(),
-              result.getDocumentId(),
-              result.getFileName(),
-              result.getChunkIndex(),
-              result.getRelevanceScore());
-          log.info("===== RETRIEVED CHUNK {} FULL CONTENT START =====", i);
-          log.info("{}", result.getContent());
-          log.info("===== RETRIEVED CHUNK {} FULL CONTENT END =====", i);
-        }
-      } else {
-        log.warn("Vector search returned NO RESULTS for session {}!", sessionId);
-      }
       log.info("========== VECTOR SEARCH END ==========");
       return results;
     } catch (IOException e) {
@@ -273,6 +265,64 @@ public class ElasticsearchIndexService {
   private List<DocumentChunk> vectorSearchFallback(
       UUID sessionId, List<Float> queryEmbedding, int topK, Throwable t) {
     log.warn("Circuit breaker open for vector search: {}", t.getMessage());
+    return List.of();
+  }
+
+  /**
+   * Vector search on a specific embedding field (Stage 2.2 - multiple embeddings).
+   *
+   * @param sessionId the session to search within
+   * @param embeddingField the field to search ("embedding", "titleEmbedding", or
+   *     "contentEmbedding")
+   * @param queryEmbedding the query embedding vector
+   * @param topK number of results to return
+   * @return list of matching chunks sorted by relevance
+   */
+  @Timed(
+      value = "elasticsearch.vectorsearch.byfield",
+      description = "Time for vector search by field")
+  @CircuitBreaker(name = "elasticsearch", fallbackMethod = "vectorSearchByFieldFallback")
+  public List<DocumentChunk> vectorSearchByField(
+      UUID sessionId, String embeddingField, List<Float> queryEmbedding, int topK) {
+    log.debug(
+        "vectorSearchByField called for session {}, field={}, topK={}, embedding size={}",
+        sessionId,
+        embeddingField,
+        topK,
+        queryEmbedding.size());
+    try {
+      SearchRequest request =
+          SearchRequest.of(
+              s ->
+                  s.index(indexName)
+                      .knn(
+                          k ->
+                              k.field(embeddingField)
+                                  .queryVector(queryEmbedding)
+                                  .k(topK)
+                                  .numCandidates(topK * 2)
+                                  .filter(
+                                      f ->
+                                          f.term(
+                                              t ->
+                                                  t.field("sessionId")
+                                                      .value(sessionId.toString()))))
+                      .size(topK));
+
+      SearchResponse<Map> response = elasticsearchClient.search(request, Map.class);
+      List<DocumentChunk> results = mapHitsToChunks(response.hits().hits());
+      log.debug("Vector search on field '{}' returned {} results", embeddingField, results.size());
+      return results;
+    } catch (IOException e) {
+      log.error("Vector search by field '{}' failed: {}", embeddingField, e.getMessage(), e);
+      throw new RuntimeException("Vector search by field failed", e);
+    }
+  }
+
+  @SuppressWarnings("unused")
+  private List<DocumentChunk> vectorSearchByFieldFallback(
+      UUID sessionId, String embeddingField, List<Float> queryEmbedding, int topK, Throwable t) {
+    log.warn("Circuit breaker open for vector search by field: {}", t.getMessage());
     return List.of();
   }
 
@@ -328,25 +378,6 @@ public class ElasticsearchIndexService {
           "Keyword search returned {} results (total hits: {})",
           results.size(),
           response.hits().total() != null ? response.hits().total().value() : "unknown");
-      if (!results.isEmpty()) {
-        for (int i = 0; i < Math.min(3, results.size()); i++) {
-          DocumentChunk result = results.get(i);
-          log.info(
-              "Result {}: sessionId={}, documentId={}, file={}, chunkIndex={}, score={}",
-              i,
-              result.getSessionId(),
-              result.getDocumentId(),
-              result.getFileName(),
-              result.getChunkIndex(),
-              result.getRelevanceScore());
-          log.info("===== RETRIEVED CHUNK {} FULL CONTENT START =====", i);
-          log.info("{}", result.getContent());
-          log.info("===== RETRIEVED CHUNK {} FULL CONTENT END =====", i);
-        }
-      } else {
-        log.warn(
-            "Keyword search returned NO RESULTS for session {} and query '{}'!", sessionId, query);
-      }
       log.info("========== KEYWORD SEARCH END ==========");
       return results;
     } catch (IOException e) {

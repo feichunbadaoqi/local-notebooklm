@@ -120,21 +120,39 @@ public class DocumentProcessingService {
         charOffset += chunkContent.length();
       }
 
-      // Generate embeddings for enriched content (or raw content if not enriched)
-      log.debug("Generating embeddings for {} chunks...", textsToEmbed.size());
-      List<List<Float>> embeddings = embeddingService.embedTexts(textsToEmbed);
+      // Generate multiple embeddings per chunk (Stage 2.2)
+      // 1. Title embeddings (from documentTitle + sectionTitle)
+      // 2. Content embeddings (from enrichedContent)
+      log.debug("Generating title and content embeddings for {} chunks...", textsToEmbed.size());
+
+      // Collect title texts for title embeddings
+      List<String> titleTexts = new ArrayList<>();
+      for (DocumentChunk chunk : documentChunks) {
+        String titleText =
+            (chunk.getDocumentTitle() != null ? chunk.getDocumentTitle() : "")
+                + " "
+                + (chunk.getSectionTitle() != null ? chunk.getSectionTitle() : "");
+        titleTexts.add(titleText.trim().isEmpty() ? chunk.getFileName() : titleText.trim());
+      }
+
+      // Generate both sets of embeddings
+      List<List<Float>> titleEmbeddings = embeddingService.embedTexts(titleTexts);
+      List<List<Float>> contentEmbeddings = embeddingService.embedTexts(textsToEmbed);
       log.debug(
-          "Generated {} embeddings, first embedding size: {}",
-          embeddings.size(),
-          embeddings.isEmpty() ? 0 : embeddings.get(0).size());
+          "Generated {} title embeddings and {} content embeddings",
+          titleEmbeddings.size(),
+          contentEmbeddings.size());
 
       // Check if embedding generation failed
-      if (embeddings.isEmpty() || embeddings.size() != documentChunks.size()) {
+      if (titleEmbeddings.isEmpty()
+          || contentEmbeddings.isEmpty()
+          || titleEmbeddings.size() != documentChunks.size()
+          || contentEmbeddings.size() != documentChunks.size()) {
         throw new DocumentProcessingException(
             documentId,
             String.format(
-                "Embedding generation failed: expected %d embeddings, got %d",
-                documentChunks.size(), embeddings.size()));
+                "Embedding generation failed: expected %d embeddings, got %d title and %d content",
+                documentChunks.size(), titleEmbeddings.size(), contentEmbeddings.size()));
       }
 
       // Attach embeddings to chunks and filter out any with empty embeddings
@@ -142,16 +160,22 @@ public class DocumentProcessingService {
       int skippedChunks = 0;
 
       for (int i = 0; i < documentChunks.size(); i++) {
-        List<Float> embedding = embeddings.get(i);
+        List<Float> titleEmbedding = titleEmbeddings.get(i);
+        List<Float> contentEmbedding = contentEmbeddings.get(i);
 
         // Skip chunks with empty or invalid embeddings
-        if (embedding == null || embedding.isEmpty()) {
+        if (titleEmbedding == null
+            || titleEmbedding.isEmpty()
+            || contentEmbedding == null
+            || contentEmbedding.isEmpty()) {
           log.warn("Skipping chunk {} due to empty embedding", i);
           skippedChunks++;
           continue;
         }
 
-        documentChunks.get(i).setEmbedding(embedding);
+        documentChunks.get(i).setTitleEmbedding(titleEmbedding);
+        documentChunks.get(i).setContentEmbedding(contentEmbedding);
+        documentChunks.get(i).setEmbedding(contentEmbedding); // Backward compatibility
         validChunks.add(documentChunks.get(i));
       }
 

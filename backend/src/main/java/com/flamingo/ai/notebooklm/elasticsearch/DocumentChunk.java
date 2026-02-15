@@ -27,7 +27,12 @@ public class DocumentChunk {
   private String fileName;
   private int chunkIndex;
   private String content;
-  private List<Float> embedding;
+  private List<Float> embedding; // Keep for backward compatibility
+
+  // Multiple embeddings for improved retrieval (Stage 2.2)
+  private List<Float> titleEmbedding; // Embedding of title + section
+  private List<Float> contentEmbedding; // Embedding of full content
+
   private int tokenCount;
 
   // Metadata fields for enhanced retrieval (RAG optimization Phase 1)
