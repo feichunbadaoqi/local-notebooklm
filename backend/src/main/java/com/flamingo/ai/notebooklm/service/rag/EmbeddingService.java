@@ -27,28 +27,94 @@ public class EmbeddingService {
   private static final int MAX_CHARS_PER_EMBEDDING =
       (int) (MAX_TOKENS_PER_EMBEDDING * CHARS_PER_TOKEN_ESTIMATE); // 5000 chars
 
+  // Instruction prefixes for better semantic matching (especially for multilingual models)
+  private static final String QUERY_PREFIX =
+      "Represent this question for retrieving relevant document passages: ";
+  private static final String PASSAGE_PREFIX = "Represent this document passage for retrieval: ";
+
   private final EmbeddingModel embeddingModel;
   private final MeterRegistry meterRegistry;
 
+  /**
+   * Embeds a query text with query-specific instruction prefix for better retrieval matching.
+   *
+   * @param query the query text
+   * @return embedding vector
+   */
+  @Timed(value = "embedding.embedQuery", description = "Time to embed query")
+  @CircuitBreaker(name = "openai", fallbackMethod = "embedTextFallback")
+  @Retry(name = "openai")
+  public List<Float> embedQuery(String query) {
+    String prefixedQuery = QUERY_PREFIX + query;
+    log.debug("embedQuery called, input length: {} chars (with prefix)", prefixedQuery.length());
+
+    // Truncate if too long (account for prefix in length)
+    if (prefixedQuery.length() > MAX_CHARS_PER_EMBEDDING) {
+      log.warn(
+          "Query too long for embedding, truncating from {} chars to {} chars",
+          prefixedQuery.length(),
+          MAX_CHARS_PER_EMBEDDING);
+      prefixedQuery = prefixedQuery.substring(0, MAX_CHARS_PER_EMBEDDING);
+    }
+
+    log.debug("Calling OpenAI embedding API for query...");
+    Response<Embedding> response = embeddingModel.embed(prefixedQuery);
+    meterRegistry.counter("embedding.requests.success", "type", "query").increment();
+
+    return toFloatList(response.content().vector());
+  }
+
+  /**
+   * Embeds a passage text with passage-specific instruction prefix for better retrieval matching.
+   *
+   * @param passage the passage text
+   * @return embedding vector
+   */
+  @Timed(value = "embedding.embedPassage", description = "Time to embed passage")
+  @CircuitBreaker(name = "openai", fallbackMethod = "embedTextFallback")
+  @Retry(name = "openai")
+  public List<Float> embedPassage(String passage) {
+    String prefixedPassage = PASSAGE_PREFIX + passage;
+    log.debug(
+        "embedPassage called, input length: {} chars (with prefix)", prefixedPassage.length());
+
+    // Truncate if too long (account for prefix in length)
+    if (prefixedPassage.length() > MAX_CHARS_PER_EMBEDDING) {
+      log.warn(
+          "Passage too long for embedding, truncating from {} chars to {} chars",
+          prefixedPassage.length(),
+          MAX_CHARS_PER_EMBEDDING);
+      prefixedPassage = prefixedPassage.substring(0, MAX_CHARS_PER_EMBEDDING);
+    }
+
+    log.debug("Calling OpenAI embedding API for passage...");
+    Response<Embedding> response = embeddingModel.embed(prefixedPassage);
+    meterRegistry.counter("embedding.requests.success", "type", "passage").increment();
+
+    return toFloatList(response.content().vector());
+  }
+
+  /**
+   * Embeds text without specific instruction prefix. Deprecated - use embedQuery() or
+   * embedPassage() instead for better retrieval performance.
+   *
+   * @param text the text to embed
+   * @return embedding vector
+   * @deprecated Use {@link #embedQuery(String)} for queries or {@link #embedPassage(String)} for
+   *     passages
+   */
+  @Deprecated
   @Timed(value = "embedding.embed", description = "Time to embed text")
   @CircuitBreaker(name = "openai", fallbackMethod = "embedTextFallback")
   @Retry(name = "openai")
   public List<Float> embedText(String text) {
-    log.debug("embedText called, input length: {} chars", text.length());
-    // Truncate if too long - use conservative estimate
-    if (text.length() > MAX_CHARS_PER_EMBEDDING) {
-      log.warn(
-          "Text too long for embedding, truncating from {} chars to {} chars",
-          text.length(),
-          MAX_CHARS_PER_EMBEDDING);
-      text = text.substring(0, MAX_CHARS_PER_EMBEDDING);
-    }
-    log.debug("Calling OpenAI embedding API...");
-    Response<Embedding> response = embeddingModel.embed(text);
-    meterRegistry.counter("embedding.requests.success").increment();
+    log.debug("embedText called (deprecated), input length: {} chars", text.length());
+    // Default to passage embedding for backward compatibility
+    return embedPassage(text);
+  }
 
-    float[] vector = response.content().vector();
-    log.debug("Embedding generated successfully, vector dimension: {}", vector.length);
+  /** Converts float array to Float list. */
+  private List<Float> toFloatList(float[] vector) {
     List<Float> result = new ArrayList<>(vector.length);
     for (float f : vector) {
       result.add(f);
@@ -56,6 +122,12 @@ public class EmbeddingService {
     return result;
   }
 
+  /**
+   * Embeds multiple passages (document chunks) with passage-specific instruction prefix.
+   *
+   * @param texts the list of passages to embed
+   * @return list of embedding vectors
+   */
   @Timed(value = "embedding.embedBatch", description = "Time to embed batch")
   @CircuitBreaker(name = "openai", fallbackMethod = "embedTextsFallback")
   @Retry(name = "openai")
@@ -64,23 +136,20 @@ public class EmbeddingService {
     // Process embeddings one at a time to avoid batching issues
     for (int i = 0; i < texts.size(); i++) {
       String text = texts.get(i);
+      String prefixedText = PASSAGE_PREFIX + text;
+
       // Truncate if too long - use conservative estimate
-      String truncatedText = text;
-      if (text.length() > MAX_CHARS_PER_EMBEDDING) {
+      if (prefixedText.length() > MAX_CHARS_PER_EMBEDDING) {
         log.warn(
-            "Chunk {} too long for embedding, truncating from {} chars to {} chars",
+            "Passage {} too long for embedding, truncating from {} chars to {} chars",
             i,
-            text.length(),
+            prefixedText.length(),
             MAX_CHARS_PER_EMBEDDING);
-        truncatedText = text.substring(0, MAX_CHARS_PER_EMBEDDING);
+        prefixedText = prefixedText.substring(0, MAX_CHARS_PER_EMBEDDING);
       }
-      Response<Embedding> response = embeddingModel.embed(truncatedText);
-      float[] vector = response.content().vector();
-      List<Float> embedding = new ArrayList<>(vector.length);
-      for (float f : vector) {
-        embedding.add(f);
-      }
-      results.add(embedding);
+
+      Response<Embedding> response = embeddingModel.embed(prefixedText);
+      results.add(toFloatList(response.content().vector()));
     }
     meterRegistry
         .counter("embedding.requests.success", "count", String.valueOf(texts.size()))

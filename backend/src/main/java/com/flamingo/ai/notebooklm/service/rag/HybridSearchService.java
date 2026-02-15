@@ -67,9 +67,9 @@ public class HybridSearchService {
     int candidateMultiplier = ragConfig.getRetrieval().getCandidatesMultiplier();
     log.debug("Mode: {}, topK: {}, candidateMultiplier: {}", mode, topK, candidateMultiplier);
 
-    // Get query embedding
-    log.debug("Generating query embedding...");
-    List<Float> queryEmbedding = embeddingService.embedText(query);
+    // Get query embedding with query-specific prefix
+    log.debug("Generating query embedding with instruction prefix...");
+    List<Float> queryEmbedding = embeddingService.embedQuery(query);
     log.debug("Query embedding generated, size: {}", queryEmbedding.size());
     if (queryEmbedding.isEmpty()) {
       log.warn("Failed to generate query embedding, falling back to keyword search only");

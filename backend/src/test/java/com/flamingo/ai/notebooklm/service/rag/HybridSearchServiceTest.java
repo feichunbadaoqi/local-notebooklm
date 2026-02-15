@@ -95,7 +95,7 @@ class HybridSearchServiceTest {
         DocumentChunk keywordChunk1 = createChunk("k1", "Keyword result 1");
         DocumentChunk keywordChunk2 = createChunk("v1", "Vector result 1"); // Same as vector
 
-        when(embeddingService.embedText(anyString())).thenReturn(embedding);
+        when(embeddingService.embedQuery(anyString())).thenReturn(embedding);
         when(documentChunkIndexService.vectorSearch(eq(sessionId), eq(embedding), anyInt()))
             .thenReturn(List.of(vectorChunk1, vectorChunk2));
         when(documentChunkIndexService.keywordSearch(eq(sessionId), anyString(), anyInt()))
@@ -107,7 +107,7 @@ class HybridSearchServiceTest {
             hybridSearchService.search(sessionId, "test query", InteractionMode.EXPLORING);
 
         assertThat(results).isNotEmpty();
-        verify(embeddingService).embedText("test query");
+        verify(embeddingService).embedQuery("test query");
         verify(documentChunkIndexService).vectorSearch(eq(sessionId), eq(embedding), anyInt());
         verify(documentChunkIndexService).keywordSearch(eq(sessionId), eq("test query"), anyInt());
       }
@@ -122,7 +122,7 @@ class HybridSearchServiceTest {
 
         List<Float> embedding = List.of(0.1f, 0.2f, 0.3f);
 
-        when(embeddingService.embedText(anyString())).thenReturn(embedding);
+        when(embeddingService.embedQuery(anyString())).thenReturn(embedding);
         when(documentChunkIndexService.vectorSearch(eq(sessionId), any(), anyInt()))
             .thenReturn(List.of());
         when(documentChunkIndexService.keywordSearch(eq(sessionId), anyString(), anyInt()))
@@ -149,7 +149,7 @@ class HybridSearchServiceTest {
         DocumentChunk vectorChunk = createChunk(sharedId, "Shared content");
         DocumentChunk keywordChunk = createChunk(sharedId, "Shared content");
 
-        when(embeddingService.embedText(anyString())).thenReturn(embedding);
+        when(embeddingService.embedQuery(anyString())).thenReturn(embedding);
         when(documentChunkIndexService.vectorSearch(eq(sessionId), any(), anyInt()))
             .thenReturn(List.of(vectorChunk));
         when(documentChunkIndexService.keywordSearch(eq(sessionId), anyString(), anyInt()))
