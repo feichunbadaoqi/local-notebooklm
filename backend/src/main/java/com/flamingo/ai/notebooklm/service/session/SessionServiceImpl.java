@@ -10,6 +10,7 @@ import com.flamingo.ai.notebooklm.domain.repository.DocumentRepository;
 import com.flamingo.ai.notebooklm.domain.repository.SessionRepository;
 import com.flamingo.ai.notebooklm.elasticsearch.ChatMessageIndexService;
 import com.flamingo.ai.notebooklm.elasticsearch.DocumentChunkIndexService;
+import com.flamingo.ai.notebooklm.elasticsearch.MemoryIndexService;
 import com.flamingo.ai.notebooklm.exception.SessionNotFoundException;
 import io.micrometer.core.annotation.Timed;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -32,6 +33,7 @@ public class SessionServiceImpl implements SessionService {
   private final MeterRegistry meterRegistry;
   private final DocumentChunkIndexService documentChunkIndexService;
   private final ChatMessageIndexService chatMessageIndexService;
+  private final MemoryIndexService memoryIndexService;
 
   @Override
   @Transactional
@@ -115,8 +117,10 @@ public class SessionServiceImpl implements SessionService {
       log.info("Deleted Elasticsearch chat messages for session: {}", sessionId);
       meterRegistry.counter("session.elasticsearch.messages.deleted").increment();
 
-      // TODO Phase 4: Add memory index cleanup
-      // memoryIndexService.deleteBySessionId(sessionId);
+      // Memories (Phase 4)
+      memoryIndexService.deleteBySessionId(sessionId);
+      log.info("Deleted Elasticsearch memories for session: {}", sessionId);
+      meterRegistry.counter("session.elasticsearch.memories.deleted").increment();
 
     } catch (Exception e) {
       log.error("Failed to delete ES data for session {}: {}", sessionId, e.getMessage());

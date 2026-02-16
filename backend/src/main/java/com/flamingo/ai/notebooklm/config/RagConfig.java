@@ -51,6 +51,8 @@ public class RagConfig {
     private int maxPerSession = 50;
     private float extractionThreshold = 0.3f;
     private int contextLimit = 5;
+    private Float semanticWeight = 0.7f; // 70% semantic relevance, 30% importance
+    private Integer candidatePoolMultiplier = 3; // Fetch 3x candidates for reranking
   }
 
   @Getter

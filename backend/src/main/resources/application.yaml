@@ -52,6 +52,7 @@ app:
   elasticsearch:
     index-name: notebooklm-chunks
     chat-message-index-name: notebooklm-chat-messages
+    memory-index-name: notebooklm-memories
     vector-dimensions: 3072
     # Text analyzer for multilingual support
     # Options:
@@ -92,6 +93,8 @@ rag:
     max-per-session: 50        # Max memories per session
     extraction-threshold: 0.3  # Min importance to save
     context-limit: 5           # Max memories in context
+    semantic-weight: 0.7       # Weight for semantic relevance (70%) vs importance (30%)
+    candidate-pool-multiplier: 3  # Fetch 3x candidates for hybrid search
   query-reformulation:
     enabled: true              # Enable query reformulation for conversational RAG
     history-window: 5          # Number of relevant messages to return

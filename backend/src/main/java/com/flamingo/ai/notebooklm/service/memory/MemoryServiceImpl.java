@@ -7,6 +7,9 @@ import com.flamingo.ai.notebooklm.domain.entity.Memory;
 import com.flamingo.ai.notebooklm.domain.entity.Session;
 import com.flamingo.ai.notebooklm.domain.enums.InteractionMode;
 import com.flamingo.ai.notebooklm.domain.repository.MemoryRepository;
+import com.flamingo.ai.notebooklm.elasticsearch.MemoryDocument;
+import com.flamingo.ai.notebooklm.elasticsearch.MemoryIndexService;
+import com.flamingo.ai.notebooklm.service.rag.EmbeddingService;
 import com.flamingo.ai.notebooklm.service.session.SessionService;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -15,7 +18,6 @@ import java.util.Locale;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -31,6 +33,9 @@ public class MemoryServiceImpl implements MemoryService {
   private final MemoryExtractionAgent agent;
   private final RagConfig ragConfig;
   private final MeterRegistry meterRegistry;
+  private final MemoryIndexService memoryIndexService;
+  private final EmbeddingService embeddingService;
+  private final MemoryHybridSearchService memoryHybridSearchService;
 
   @Override
   @Async("documentProcessingExecutor")
@@ -130,7 +135,28 @@ public class MemoryServiceImpl implements MemoryService {
             .importance(importance)
             .build();
 
-    memoryRepository.save(memory);
+    Memory saved = memoryRepository.save(memory);
+
+    // Index to Elasticsearch asynchronously for semantic search
+    try {
+      List<Float> embedding = embeddingService.embedText(content);
+      MemoryDocument doc =
+          MemoryDocument.builder()
+              .id(saved.getId().toString())
+              .sessionId(session.getId())
+              .memoryContent(content)
+              .memoryType(type)
+              .importance(importance)
+              .embedding(embedding)
+              .timestamp(System.currentTimeMillis())
+              .build();
+
+      memoryIndexService.indexMemories(List.of(doc));
+      log.debug("Indexed memory {} to Elasticsearch", saved.getId());
+    } catch (Exception e) {
+      // Don't fail the request if ES indexing fails
+      log.warn("Failed to index memory {} to Elasticsearch: {}", saved.getId(), e.getMessage());
+    }
   }
 
   private void enforceMaxMemories(UUID sessionId) {
@@ -155,10 +181,20 @@ public class MemoryServiceImpl implements MemoryService {
   public List<Memory> getRelevantMemories(UUID sessionId, String query, int limit) {
     sessionService.getSession(sessionId); // Validate session exists
 
-    // For now, return top memories by importance
-    // Future: use embedding similarity to find query-relevant memories
+    // Use hybrid search to find semantically relevant memories
+    List<MemoryDocument> relevantDocs = memoryHybridSearchService.search(sessionId, query, limit);
+
+    if (relevantDocs.isEmpty()) {
+      return List.of();
+    }
+
+    // Convert to Memory entities (fetch from SQLite by ID)
     List<Memory> memories =
-        memoryRepository.findTopMemoriesBySessionId(sessionId, PageRequest.of(0, limit));
+        relevantDocs.stream()
+            .map(doc -> memoryRepository.findById(UUID.fromString(doc.getId())))
+            .filter(java.util.Optional::isPresent)
+            .map(java.util.Optional::get)
+            .toList();
 
     // Touch accessed memories
     for (Memory memory : memories) {

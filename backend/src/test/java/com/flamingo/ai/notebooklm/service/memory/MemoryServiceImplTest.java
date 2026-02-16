@@ -3,7 +3,6 @@ package com.flamingo.ai.notebooklm.service.memory;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -16,11 +15,13 @@ import com.flamingo.ai.notebooklm.domain.entity.Memory;
 import com.flamingo.ai.notebooklm.domain.entity.Session;
 import com.flamingo.ai.notebooklm.domain.enums.InteractionMode;
 import com.flamingo.ai.notebooklm.domain.repository.MemoryRepository;
+import com.flamingo.ai.notebooklm.elasticsearch.MemoryDocument;
 import com.flamingo.ai.notebooklm.service.session.SessionService;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -30,9 +31,11 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.data.domain.PageRequest;
+import org.mockito.junit.jupiter.MockitoSettings;
+import org.mockito.quality.Strictness;
 
 @ExtendWith(MockitoExtension.class)
+@MockitoSettings(strictness = Strictness.LENIENT)
 class MemoryServiceImplTest {
 
   @Mock private MemoryRepository memoryRepository;
@@ -40,6 +43,9 @@ class MemoryServiceImplTest {
   @Mock private MemoryExtractionAgent agent;
   @Mock private MeterRegistry meterRegistry;
   @Mock private Counter counter;
+  @Mock private com.flamingo.ai.notebooklm.elasticsearch.MemoryIndexService memoryIndexService;
+  @Mock private com.flamingo.ai.notebooklm.service.rag.EmbeddingService embeddingService;
+  @Mock private MemoryHybridSearchService memoryHybridSearchService;
 
   private RagConfig ragConfig;
   private MemoryServiceImpl memoryService;
@@ -54,7 +60,15 @@ class MemoryServiceImplTest {
     ragConfig.setMemory(new RagConfig.Memory());
 
     memoryService =
-        new MemoryServiceImpl(memoryRepository, sessionService, agent, ragConfig, meterRegistry);
+        new MemoryServiceImpl(
+            memoryRepository,
+            sessionService,
+            agent,
+            ragConfig,
+            meterRegistry,
+            memoryIndexService,
+            embeddingService,
+            memoryHybridSearchService);
 
     sessionId = UUID.randomUUID();
     memoryId = UUID.randomUUID();
@@ -62,6 +76,13 @@ class MemoryServiceImplTest {
 
     // Lenient stubbing for metrics - used in various tests
     lenient().when(meterRegistry.counter(anyString())).thenReturn(counter);
+
+    // Lenient stubbing for embedding service and index service - used when saving memories
+    lenient().when(embeddingService.embedText(anyString())).thenReturn(List.of(0.1f, 0.2f, 0.3f));
+    lenient()
+        .doNothing()
+        .when(memoryIndexService)
+        .indexMemories(any()); // Using doNothing for void method
   }
 
   @Nested
@@ -69,14 +90,28 @@ class MemoryServiceImplTest {
   class GetRelevantMemoriesTests {
 
     @Test
-    @DisplayName("should return top memories by importance")
-    void shouldReturnTopMemoriesByImportance() {
+    @DisplayName("should return relevant memories using hybrid search")
+    void shouldReturnRelevantMemoriesUsingHybridSearch() {
       Memory memory1 = createMemory("Fact 1", Memory.TYPE_FACT, 0.9f);
       Memory memory2 = createMemory("Fact 2", Memory.TYPE_FACT, 0.7f);
 
+      MemoryDocument doc1 =
+          MemoryDocument.builder()
+              .id(memory1.getId().toString())
+              .sessionId(sessionId)
+              .memoryContent("Fact 1")
+              .build();
+      MemoryDocument doc2 =
+          MemoryDocument.builder()
+              .id(memory2.getId().toString())
+              .sessionId(sessionId)
+              .memoryContent("Fact 2")
+              .build();
+
       when(sessionService.getSession(sessionId)).thenReturn(session);
-      when(memoryRepository.findTopMemoriesBySessionId(eq(sessionId), any(PageRequest.class)))
-          .thenReturn(List.of(memory1, memory2));
+      when(memoryHybridSearchService.search(sessionId, "query", 5)).thenReturn(List.of(doc1, doc2));
+      when(memoryRepository.findById(memory1.getId())).thenReturn(Optional.of(memory1));
+      when(memoryRepository.findById(memory2.getId())).thenReturn(Optional.of(memory2));
 
       List<Memory> result = memoryService.getRelevantMemories(sessionId, "query", 5);
 
@@ -89,8 +124,7 @@ class MemoryServiceImplTest {
     @DisplayName("should return empty list when no memories exist")
     void shouldReturnEmptyListWhenNoMemories() {
       when(sessionService.getSession(sessionId)).thenReturn(session);
-      when(memoryRepository.findTopMemoriesBySessionId(eq(sessionId), any(PageRequest.class)))
-          .thenReturn(List.of());
+      when(memoryHybridSearchService.search(sessionId, "query", 5)).thenReturn(List.of());
 
       List<Memory> result = memoryService.getRelevantMemories(sessionId, "query", 5);
 
