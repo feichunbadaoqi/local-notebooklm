@@ -91,7 +91,13 @@ public class ChatController {
   }
 
   /**
-   * Forces compaction of chat history.
+   * Forces compaction of chat history (ADVANCED).
+   *
+   * <p>Compaction is automatically triggered when chat history exceeds 30 messages or 3000 tokens.
+   * Manual use of this endpoint is only needed for testing or forcing immediate compaction.
+   *
+   * <p><strong>Note:</strong> This is an advanced feature. Most users should not need to call this
+   * endpoint as compaction happens automatically during normal chat flow.
    *
    * @param sessionId the session ID
    * @return 200 OK on success
