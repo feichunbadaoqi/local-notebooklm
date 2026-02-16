@@ -2,10 +2,12 @@ package com.flamingo.ai.notebooklm.config;
 
 import com.flamingo.ai.notebooklm.agent.AnswerVerificationAgent;
 import com.flamingo.ai.notebooklm.agent.ChatCompactionAgent;
+import com.flamingo.ai.notebooklm.agent.ChatStreamingAgent;
 import com.flamingo.ai.notebooklm.agent.CrossEncoderRerankerAgent;
 import com.flamingo.ai.notebooklm.agent.MemoryExtractionAgent;
 import com.flamingo.ai.notebooklm.agent.QueryReformulationAgent;
 import dev.langchain4j.model.chat.ChatModel;
+import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.service.AiServices;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -62,5 +64,16 @@ public class AiAgentConfig {
   @Bean
   public AnswerVerificationAgent answerVerificationAgent(ChatModel chatModel) {
     return AiServices.builder(AnswerVerificationAgent.class).chatModel(chatModel).build();
+  }
+
+  /**
+   * Chat streaming agent for streaming RAG-enhanced chat responses. Uses StreamingChatModel for
+   * reactive token-by-token streaming.
+   */
+  @Bean
+  public ChatStreamingAgent chatStreamingAgent(StreamingChatModel streamingChatModel) {
+    return AiServices.builder(ChatStreamingAgent.class)
+        .streamingChatModel(streamingChatModel)
+        .build();
   }
 }

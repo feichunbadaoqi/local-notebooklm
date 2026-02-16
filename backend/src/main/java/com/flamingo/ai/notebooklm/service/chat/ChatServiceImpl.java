@@ -1,5 +1,6 @@
 package com.flamingo.ai.notebooklm.service.chat;
 
+import com.flamingo.ai.notebooklm.agent.ChatStreamingAgent;
 import com.flamingo.ai.notebooklm.api.dto.response.StreamChunkResponse;
 import com.flamingo.ai.notebooklm.config.RagConfig;
 import com.flamingo.ai.notebooklm.domain.entity.ChatMessage;
@@ -21,9 +22,6 @@ import com.flamingo.ai.notebooklm.service.session.SessionService;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
-import dev.langchain4j.model.chat.StreamingChatModel;
-import dev.langchain4j.model.chat.response.ChatResponse;
-import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import io.github.resilience4j.retry.annotation.Retry;
 import io.micrometer.core.annotation.Timed;
@@ -50,7 +48,7 @@ public class ChatServiceImpl implements ChatService {
   private final HybridSearchService hybridSearchService;
   private final ChatMessageRepository chatMessageRepository;
   private final ChatSummaryRepository chatSummaryRepository;
-  private final StreamingChatModel streamingChatModel;
+  private final ChatStreamingAgent chatStreamingAgent;
   private final ChatCompactionService compactionService;
   private final MemoryService memoryService;
   private final QueryReformulationService queryReformulationService;
@@ -125,73 +123,72 @@ public class ChatServiceImpl implements ChatService {
     AtomicReference<StringBuilder> responseBuilder = new AtomicReference<>(new StringBuilder());
     AtomicInteger tokenCount = new AtomicInteger(0);
 
-    log.debug("Calling streamingChatModel.chat()...");
-    // Stream the response using StreamingChatResponseHandler
-    streamingChatModel.chat(
-        messages,
-        new StreamingChatResponseHandler() {
-          @Override
-          public void onPartialResponse(String partialResponse) {
-            log.trace("Received partial response: {}", partialResponse);
-            responseBuilder.get().append(partialResponse);
-            tokenCount.incrementAndGet();
-            var result = sink.tryEmitNext(StreamChunkResponse.token(partialResponse));
-            if (result.isFailure()) {
-              log.warn("Failed to emit token: {}", result);
-            }
-          }
-
-          @Override
-          public void onCompleteResponse(ChatResponse completeResponse) {
-            log.debug("onCompleteResponse called, total tokens: {}", tokenCount.get());
-            // Send citations if we have relevant chunks
-            if (!relevantChunks.isEmpty()) {
-              log.debug("Sending {} citations", relevantChunks.size());
-              for (DocumentChunk chunk : relevantChunks) {
-                sink.tryEmitNext(
-                    StreamChunkResponse.citation(
-                        chunk.getFileName(),
-                        null,
-                        chunk.getContent().substring(0, Math.min(100, chunk.getContent().length()))
-                            + "..."));
+    log.debug("Calling chatStreamingAgent.chat()...");
+    // Stream the response using TokenStream
+    chatStreamingAgent
+        .chat(messages)
+        .onPartialResponse(
+            token -> {
+              log.trace("Received token: {}", token);
+              responseBuilder.get().append(token);
+              tokenCount.incrementAndGet();
+              var result = sink.tryEmitNext(StreamChunkResponse.token(token));
+              if (result.isFailure()) {
+                log.warn("Failed to emit token: {}", result);
               }
-            }
+            })
+        .onCompleteResponse(
+            response -> {
+              log.debug("onCompleteResponse called, total tokens: {}", tokenCount.get());
+              // Send citations if we have relevant chunks
+              if (!relevantChunks.isEmpty()) {
+                log.debug("Sending {} citations", relevantChunks.size());
+                for (DocumentChunk chunk : relevantChunks) {
+                  sink.tryEmitNext(
+                      StreamChunkResponse.citation(
+                          chunk.getFileName(),
+                          null,
+                          chunk
+                                  .getContent()
+                                  .substring(0, Math.min(100, chunk.getContent().length()))
+                              + "..."));
+                }
+              }
 
-            // Save assistant message
-            String fullResponse = responseBuilder.get().toString();
-            log.debug("Full response length: {}", fullResponse.length());
-            ChatMessage assistantMsg =
-                saveMessage(session, MessageRole.ASSISTANT, fullResponse, mode);
-            log.debug("Assistant message saved with id: {}", assistantMsg.getId());
+              // Save assistant message
+              String fullResponse = responseBuilder.get().toString();
+              log.debug("Full response length: {}", fullResponse.length());
+              ChatMessage assistantMsg =
+                  saveMessage(session, MessageRole.ASSISTANT, fullResponse, mode);
+              log.debug("Assistant message saved with id: {}", assistantMsg.getId());
 
-            // Update metrics
-            meterRegistry.counter("chat.messages.generated").increment();
-            meterRegistry.counter("chat.tokens.generated").increment(tokenCount.get());
+              // Update metrics
+              meterRegistry.counter("chat.messages.generated").increment();
+              meterRegistry.counter("chat.tokens.generated").increment(tokenCount.get());
 
-            // Extract memories asynchronously (non-blocking)
-            memoryService.extractAndSaveAsync(sessionId, userMessage, fullResponse, mode);
+              // Extract memories asynchronously (non-blocking)
+              memoryService.extractAndSaveAsync(sessionId, userMessage, fullResponse, mode);
 
-            // Check if compaction is needed
-            compactionService.checkAndCompactIfNeeded(sessionId);
+              // Check if compaction is needed
+              compactionService.checkAndCompactIfNeeded(sessionId);
 
-            // Send done event
-            sink.tryEmitNext(
-                StreamChunkResponse.done(assistantMsg.getId().toString(), 0, tokenCount.get()));
-            sink.tryEmitComplete();
-            log.debug("Chat stream completed successfully");
-          }
+              // Send done event
+              sink.tryEmitNext(
+                  StreamChunkResponse.done(assistantMsg.getId().toString(), 0, tokenCount.get()));
+              sink.tryEmitComplete();
+              log.debug("Chat stream completed successfully");
+            })
+        .onError(
+            error -> {
+              log.error("Error during chat streaming: {}", error.getMessage(), error);
+              sink.tryEmitNext(
+                  StreamChunkResponse.error(UUID.randomUUID().toString(), error.getMessage()));
+              sink.tryEmitComplete();
+              meterRegistry.counter("chat.errors").increment();
+            })
+        .start();
 
-          @Override
-          public void onError(Throwable error) {
-            log.error("Error during chat streaming: {}", error.getMessage(), error);
-            sink.tryEmitNext(
-                StreamChunkResponse.error(UUID.randomUUID().toString(), error.getMessage()));
-            sink.tryEmitComplete();
-            meterRegistry.counter("chat.errors").increment();
-          }
-        });
-
-    log.debug("streamingChatModel.chat() returned, returning flux");
+    log.debug("chatStreamingAgent.chat() started, returning flux");
     return sink.asFlux();
   }
 

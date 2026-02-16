@@ -10,6 +10,7 @@ import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.flamingo.ai.notebooklm.agent.ChatStreamingAgent;
 import com.flamingo.ai.notebooklm.api.dto.response.StreamChunkResponse;
 import com.flamingo.ai.notebooklm.config.RagConfig;
 import com.flamingo.ai.notebooklm.domain.entity.ChatMessage;
@@ -24,8 +25,7 @@ import com.flamingo.ai.notebooklm.service.memory.MemoryService;
 import com.flamingo.ai.notebooklm.service.rag.HybridSearchService;
 import com.flamingo.ai.notebooklm.service.rag.QueryReformulationService;
 import com.flamingo.ai.notebooklm.service.session.SessionService;
-import dev.langchain4j.model.chat.StreamingChatModel;
-import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
+import dev.langchain4j.service.TokenStream;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
@@ -52,7 +52,7 @@ class ChatServiceImplTest {
   @Mock private HybridSearchService hybridSearchService;
   @Mock private ChatMessageRepository chatMessageRepository;
   @Mock private ChatSummaryRepository chatSummaryRepository;
-  @Mock private StreamingChatModel streamingChatModel;
+  @Mock private ChatStreamingAgent chatStreamingAgent;
   @Mock private ChatCompactionService compactionService;
   @Mock private MemoryService memoryService;
   @Mock private QueryReformulationService queryReformulationService;
@@ -86,7 +86,7 @@ class ChatServiceImplTest {
             hybridSearchService,
             chatMessageRepository,
             chatSummaryRepository,
-            streamingChatModel,
+            chatStreamingAgent,
             compactionService,
             memoryService,
             queryReformulationService,
@@ -154,6 +154,75 @@ class ChatServiceImplTest {
           .thenReturn(List.of());
     }
 
+    private void mockTokenStream(String... tokens) {
+      TokenStream mockTokenStream = Mockito.mock(TokenStream.class);
+      when(chatStreamingAgent.chat(any(List.class))).thenReturn(mockTokenStream);
+      final java.util.function.Consumer<String>[] partialCallback =
+          new java.util.function.Consumer[1];
+      final java.util.function.Consumer[] completeCallback = new java.util.function.Consumer[1];
+      final java.util.function.Consumer<Throwable>[] errorCallback =
+          new java.util.function.Consumer[1];
+      when(mockTokenStream.onPartialResponse(any()))
+          .thenAnswer(
+              inv -> {
+                partialCallback[0] = inv.getArgument(0);
+                return mockTokenStream;
+              });
+      when(mockTokenStream.onCompleteResponse(any()))
+          .thenAnswer(
+              inv -> {
+                completeCallback[0] = inv.getArgument(0);
+                return mockTokenStream;
+              });
+      when(mockTokenStream.onError(any()))
+          .thenAnswer(
+              inv -> {
+                errorCallback[0] = inv.getArgument(0);
+                return mockTokenStream;
+              });
+      doAnswer(
+              inv -> {
+                if (partialCallback[0] != null) {
+                  for (String token : tokens) {
+                    partialCallback[0].accept(token);
+                  }
+                }
+                if (completeCallback[0] != null) {
+                  completeCallback[0].accept(null);
+                }
+                return null;
+              })
+          .when(mockTokenStream)
+          .start();
+    }
+
+    private void mockTokenStreamWithError(Throwable error) {
+      TokenStream mockTokenStream = Mockito.mock(TokenStream.class);
+      when(chatStreamingAgent.chat(any(List.class))).thenReturn(mockTokenStream);
+
+      final java.util.function.Consumer<Throwable>[] errorCallback =
+          new java.util.function.Consumer[1];
+
+      when(mockTokenStream.onPartialResponse(any())).thenReturn(mockTokenStream);
+      when(mockTokenStream.onCompleteResponse(any())).thenReturn(mockTokenStream);
+      when(mockTokenStream.onError(any()))
+          .thenAnswer(
+              inv -> {
+                errorCallback[0] = inv.getArgument(0);
+                return mockTokenStream;
+              });
+
+      doAnswer(
+              inv -> {
+                if (errorCallback[0] != null) {
+                  errorCallback[0].accept(error);
+                }
+                return null;
+              })
+          .when(mockTokenStream)
+          .start();
+    }
+
     @Test
     @DisplayName("should stream response tokens")
     void shouldStreamResponseTokens() {
@@ -162,17 +231,7 @@ class ChatServiceImplTest {
         timerMock.when(() -> Timer.start(meterRegistry)).thenReturn(timerSample);
 
         setupCommonMocks();
-
-        doAnswer(
-                inv -> {
-                  StreamingChatResponseHandler handler = inv.getArgument(1);
-                  handler.onPartialResponse("Hello");
-                  handler.onPartialResponse(" world");
-                  handler.onCompleteResponse(null);
-                  return null;
-                })
-            .when(streamingChatModel)
-            .chat(any(List.class), any(StreamingChatResponseHandler.class));
+        mockTokenStream("Hello", " world");
 
         Flux<StreamChunkResponse> result = chatService.streamChat(sessionId, "Hi");
 
@@ -239,15 +298,7 @@ class ChatServiceImplTest {
         when(memoryService.getRelevantMemories(eq(sessionId), anyString(), anyInt()))
             .thenReturn(List.of());
 
-        doAnswer(
-                inv -> {
-                  StreamingChatResponseHandler handler = inv.getArgument(1);
-                  handler.onPartialResponse("Response");
-                  handler.onCompleteResponse(null);
-                  return null;
-                })
-            .when(streamingChatModel)
-            .chat(any(List.class), any(StreamingChatResponseHandler.class));
+        mockTokenStream("Response");
 
         Flux<StreamChunkResponse> result = chatService.streamChat(sessionId, "Query");
 
@@ -268,15 +319,7 @@ class ChatServiceImplTest {
 
         setupCommonMocks();
 
-        doAnswer(
-                inv -> {
-                  StreamingChatResponseHandler handler = inv.getArgument(1);
-                  handler.onPartialResponse("Response");
-                  handler.onCompleteResponse(null);
-                  return null;
-                })
-            .when(streamingChatModel)
-            .chat(any(List.class), any(StreamingChatResponseHandler.class));
+        mockTokenStream("Response");
 
         Flux<StreamChunkResponse> result = chatService.streamChat(sessionId, "Hello");
         result.collectList().block();
@@ -346,15 +389,7 @@ class ChatServiceImplTest {
             .thenReturn(List.of(memory));
         when(memoryService.buildMemoryContext(any())).thenReturn("Memory context");
 
-        doAnswer(
-                inv -> {
-                  StreamingChatResponseHandler handler = inv.getArgument(1);
-                  handler.onPartialResponse("Response");
-                  handler.onCompleteResponse(null);
-                  return null;
-                })
-            .when(streamingChatModel)
-            .chat(any(List.class), any(StreamingChatResponseHandler.class));
+        mockTokenStream("Response");
 
         Flux<StreamChunkResponse> result = chatService.streamChat(sessionId, "Query");
         result.collectList().block();
@@ -373,15 +408,7 @@ class ChatServiceImplTest {
 
         setupCommonMocks();
 
-        doAnswer(
-                inv -> {
-                  StreamingChatResponseHandler handler = inv.getArgument(1);
-                  handler.onPartialResponse("Test response");
-                  handler.onCompleteResponse(null);
-                  return null;
-                })
-            .when(streamingChatModel)
-            .chat(any(List.class), any(StreamingChatResponseHandler.class));
+        mockTokenStream("Test response");
 
         Flux<StreamChunkResponse> result = chatService.streamChat(sessionId, "Test query");
         result.collectList().block();
@@ -404,14 +431,7 @@ class ChatServiceImplTest {
 
         setupCommonMocks();
 
-        doAnswer(
-                inv -> {
-                  StreamingChatResponseHandler handler = inv.getArgument(1);
-                  handler.onError(new RuntimeException("LLM error"));
-                  return null;
-                })
-            .when(streamingChatModel)
-            .chat(any(List.class), any(StreamingChatResponseHandler.class));
+        mockTokenStreamWithError(new RuntimeException("LLM error"));
 
         Flux<StreamChunkResponse> result = chatService.streamChat(sessionId, "Query");
 
