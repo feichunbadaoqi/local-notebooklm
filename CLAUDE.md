@@ -69,37 +69,29 @@ Follow strict layer separation:
 
 ## Development Environment
 
-**IMPORTANT: This project is developed on Windows with PowerShell.**
+**IMPORTANT: Claude Code CLI uses bash (Git Bash/WSL on Windows, native bash on Unix).**
 
 ### Shell Commands
 
-- Always use PowerShell-compatible syntax
-- Use `Get-Content` instead of `cat`
-- Use `Remove-Item` instead of `rm`
-- Use semicolons (`;`) for command chaining, not `&&`
-- Use backticks (`` ` ``) for line continuation, not backslashes (`\`)
-- File paths: Use backslashes or forward slashes (both work in PowerShell)
-- Use `powershell.exe` or `pwsh` for running .ps1 scripts, not `bash`
-
-### Time/Sleep Commands
-
-- Use `Start-Sleep -Seconds 30` instead of `sleep 30`
-- For timeouts in scripts, use PowerShell's timeout mechanisms
+- Use standard Unix/bash commands (`cat`, `rm`, `grep`, `find`)
+- Chain commands with `&&` for sequential execution or `&` for background
+- Use backslashes (`\`) for line continuation
+- File paths: Use forward slashes (`/`) for cross-platform compatibility
+- Windows paths work with forward slashes in bash (e.g., `backend/src/main`)
 
 ### Examples
 
-```powershell
-# PowerShell (CORRECT for this project)
-Get-Content file.txt | Select-Object -First 10
-Start-Sleep -Seconds 5
-Remove-Item -Recurse -Force ./temp
-powershell.exe -File script.ps1
-
-# Bash (WRONG for this project)
+```bash
+# Standard bash commands
 cat file.txt | head -10
 sleep 5
 rm -rf ./temp
-bash script.sh
+./gradlew build && ./gradlew check  # Sequential execution
+
+# File operations
+rm "path/to/file.java"
+mkdir -p backend/src/main/java
+find . -name "*.java" -type f
 ```
 
 ## Common Commands

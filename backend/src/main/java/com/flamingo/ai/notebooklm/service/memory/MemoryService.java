@@ -38,49 +38,4 @@ public interface MemoryService {
    * @return formatted memory context string
    */
   String buildMemoryContext(List<Memory> memories);
-
-  /**
-   * Gets all memories for a session ordered by importance.
-   *
-   * @param sessionId the session ID
-   * @return list of all memories
-   */
-  List<Memory> getAllMemories(UUID sessionId);
-
-  /**
-   * Gets a specific memory by ID.
-   *
-   * @param memoryId the memory ID
-   * @return the memory
-   */
-  Memory getMemory(UUID memoryId);
-
-  /**
-   * Deletes a specific memory.
-   *
-   * @param memoryId the memory ID
-   */
-  void deleteMemory(UUID memoryId);
-
-  /**
-   * Manually adds a memory to a session.
-   *
-   * @param sessionId the session ID
-   * @param content the memory content
-   * @param type the memory type (fact, preference, insight)
-   * @param importance the importance score (0.0 to 1.0)
-   * @return the created memory
-   */
-  Memory addMemory(UUID sessionId, String content, String type, Float importance);
-
-  /**
-   * Validates that a memory belongs to the specified session.
-   *
-   * @param memoryId the memory ID
-   * @param sessionId the expected session ID
-   * @throws com.flamingo.ai.notebooklm.exception.MemoryNotFoundException if memory not found
-   * @throws com.flamingo.ai.notebooklm.exception.MemoryAccessDeniedException if memory doesn't
-   *     belong to session
-   */
-  void validateMemoryOwnership(UUID memoryId, UUID sessionId);
 }

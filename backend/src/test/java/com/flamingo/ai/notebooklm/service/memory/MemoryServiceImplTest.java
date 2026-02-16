@@ -1,7 +1,6 @@
 package com.flamingo.ai.notebooklm.service.memory;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -17,13 +16,11 @@ import com.flamingo.ai.notebooklm.domain.entity.Memory;
 import com.flamingo.ai.notebooklm.domain.entity.Session;
 import com.flamingo.ai.notebooklm.domain.enums.InteractionMode;
 import com.flamingo.ai.notebooklm.domain.repository.MemoryRepository;
-import com.flamingo.ai.notebooklm.exception.MemoryNotFoundException;
 import com.flamingo.ai.notebooklm.service.session.SessionService;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -125,150 +122,6 @@ class MemoryServiceImplTest {
     void shouldReturnEmptyStringForEmptyList() {
       String context = memoryService.buildMemoryContext(List.of());
       assertThat(context).isEmpty();
-    }
-  }
-
-  @Nested
-  @DisplayName("getAllMemories")
-  class GetAllMemoriesTests {
-
-    @Test
-    @DisplayName("should return all memories ordered by importance")
-    void shouldReturnAllMemoriesOrderedByImportance() {
-      Memory memory1 = createMemory("High importance", Memory.TYPE_FACT, 0.9f);
-      Memory memory2 = createMemory("Low importance", Memory.TYPE_INSIGHT, 0.3f);
-
-      when(sessionService.getSession(sessionId)).thenReturn(session);
-      when(memoryRepository.findBySessionIdOrderByImportanceDesc(sessionId))
-          .thenReturn(List.of(memory1, memory2));
-
-      List<Memory> result = memoryService.getAllMemories(sessionId);
-
-      assertThat(result).hasSize(2);
-      assertThat(result.get(0).getImportance()).isGreaterThan(result.get(1).getImportance());
-    }
-  }
-
-  @Nested
-  @DisplayName("getMemory")
-  class GetMemoryTests {
-
-    @Test
-    @DisplayName("should return memory when found")
-    void shouldReturnMemoryWhenFound() {
-      Memory memory = createMemory("Test memory", Memory.TYPE_FACT, 0.5f);
-      when(memoryRepository.findById(memoryId)).thenReturn(Optional.of(memory));
-
-      Memory result = memoryService.getMemory(memoryId);
-
-      assertThat(result).isEqualTo(memory);
-    }
-
-    @Test
-    @DisplayName("should throw exception when memory not found")
-    void shouldThrowExceptionWhenMemoryNotFound() {
-      when(memoryRepository.findById(memoryId)).thenReturn(Optional.empty());
-
-      assertThatThrownBy(() -> memoryService.getMemory(memoryId))
-          .isInstanceOf(MemoryNotFoundException.class)
-          .hasMessageContaining(memoryId.toString());
-    }
-  }
-
-  @Nested
-  @DisplayName("deleteMemory")
-  class DeleteMemoryTests {
-
-    @Test
-    @DisplayName("should delete memory when exists")
-    void shouldDeleteMemoryWhenExists() {
-      when(memoryRepository.existsById(memoryId)).thenReturn(true);
-
-      memoryService.deleteMemory(memoryId);
-
-      verify(memoryRepository).deleteById(memoryId);
-    }
-
-    @Test
-    @DisplayName("should throw exception when memory not found")
-    void shouldThrowExceptionWhenMemoryNotFound() {
-      when(memoryRepository.existsById(memoryId)).thenReturn(false);
-
-      assertThatThrownBy(() -> memoryService.deleteMemory(memoryId))
-          .isInstanceOf(MemoryNotFoundException.class);
-
-      verify(memoryRepository, never()).deleteById(any());
-    }
-  }
-
-  @Nested
-  @DisplayName("addMemory")
-  class AddMemoryTests {
-
-    @Test
-    @DisplayName("should create memory with valid type")
-    void shouldCreateMemoryWithValidType() {
-      when(sessionService.getSession(sessionId)).thenReturn(session);
-      when(memoryRepository.save(any(Memory.class)))
-          .thenAnswer(inv -> inv.getArgument(0, Memory.class));
-      when(memoryRepository.countBySessionId(sessionId)).thenReturn(1L);
-
-      Memory result = memoryService.addMemory(sessionId, "Test content", "fact", 0.8f);
-
-      assertThat(result.getMemoryContent()).isEqualTo("Test content");
-      assertThat(result.getMemoryType()).isEqualTo("fact");
-      assertThat(result.getImportance()).isEqualTo(0.8f);
-    }
-
-    @Test
-    @DisplayName("should normalize memory type to lowercase")
-    void shouldNormalizeMemoryTypeToLowercase() {
-      when(sessionService.getSession(sessionId)).thenReturn(session);
-      when(memoryRepository.save(any(Memory.class)))
-          .thenAnswer(inv -> inv.getArgument(0, Memory.class));
-      when(memoryRepository.countBySessionId(sessionId)).thenReturn(1L);
-
-      Memory result = memoryService.addMemory(sessionId, "Test", "PREFERENCE", 0.5f);
-
-      assertThat(result.getMemoryType()).isEqualTo("preference");
-    }
-
-    @Test
-    @DisplayName("should clamp importance to valid range")
-    void shouldClampImportanceToValidRange() {
-      when(sessionService.getSession(sessionId)).thenReturn(session);
-      when(memoryRepository.save(any(Memory.class)))
-          .thenAnswer(inv -> inv.getArgument(0, Memory.class));
-      when(memoryRepository.countBySessionId(sessionId)).thenReturn(1L);
-
-      Memory result = memoryService.addMemory(sessionId, "Test", "fact", 1.5f);
-      assertThat(result.getImportance()).isEqualTo(1.0f);
-
-      result = memoryService.addMemory(sessionId, "Test", "fact", -0.5f);
-      assertThat(result.getImportance()).isEqualTo(0.0f);
-    }
-
-    @Test
-    @DisplayName("should throw exception for invalid memory type")
-    void shouldThrowExceptionForInvalidMemoryType() {
-      when(sessionService.getSession(sessionId)).thenReturn(session);
-
-      assertThatThrownBy(() -> memoryService.addMemory(sessionId, "Test", "invalid", 0.5f))
-          .isInstanceOf(IllegalArgumentException.class)
-          .hasMessageContaining("Invalid memory type");
-    }
-
-    @Test
-    @DisplayName("should use default importance when null")
-    void shouldUseDefaultImportanceWhenNull() {
-      when(sessionService.getSession(sessionId)).thenReturn(session);
-      when(memoryRepository.save(any(Memory.class)))
-          .thenAnswer(inv -> inv.getArgument(0, Memory.class));
-      when(memoryRepository.countBySessionId(sessionId)).thenReturn(1L);
-
-      Memory result = memoryService.addMemory(sessionId, "Test", "fact", null);
-
-      assertThat(result.getImportance()).isEqualTo(0.5f);
     }
   }
 

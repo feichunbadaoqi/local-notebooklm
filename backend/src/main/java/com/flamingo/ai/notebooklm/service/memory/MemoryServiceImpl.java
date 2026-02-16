@@ -7,8 +7,6 @@ import com.flamingo.ai.notebooklm.domain.entity.Memory;
 import com.flamingo.ai.notebooklm.domain.entity.Session;
 import com.flamingo.ai.notebooklm.domain.enums.InteractionMode;
 import com.flamingo.ai.notebooklm.domain.repository.MemoryRepository;
-import com.flamingo.ai.notebooklm.exception.MemoryAccessDeniedException;
-import com.flamingo.ai.notebooklm.exception.MemoryNotFoundException;
 import com.flamingo.ai.notebooklm.service.session.SessionService;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -194,68 +192,5 @@ public class MemoryServiceImpl implements MemoryService {
     context.append("\nUse these memories to provide contextually aware responses.");
 
     return context.toString();
-  }
-
-  @Override
-  @Transactional(readOnly = true)
-  public List<Memory> getAllMemories(UUID sessionId) {
-    sessionService.getSession(sessionId); // Validate session exists
-    return memoryRepository.findBySessionIdOrderByImportanceDesc(sessionId);
-  }
-
-  @Override
-  @Transactional(readOnly = true)
-  public Memory getMemory(UUID memoryId) {
-    return memoryRepository
-        .findById(memoryId)
-        .orElseThrow(() -> new MemoryNotFoundException(memoryId));
-  }
-
-  @Override
-  @Transactional
-  public void deleteMemory(UUID memoryId) {
-    if (!memoryRepository.existsById(memoryId)) {
-      throw new MemoryNotFoundException(memoryId);
-    }
-    memoryRepository.deleteById(memoryId);
-    log.info("Deleted memory {}", memoryId);
-  }
-
-  @Override
-  @Transactional
-  public Memory addMemory(UUID sessionId, String content, String type, Float importance) {
-    Session session = sessionService.getSession(sessionId);
-
-    if (!isValidMemoryType(type)) {
-      throw new IllegalArgumentException("Invalid memory type: " + type);
-    }
-
-    float finalImportance = importance != null ? importance : 0.5f;
-    finalImportance = Math.max(0.0f, Math.min(1.0f, finalImportance));
-
-    Memory memory =
-        Memory.builder()
-            .session(session)
-            .memoryContent(content)
-            .memoryType(type.toLowerCase(Locale.ROOT))
-            .importance(finalImportance)
-            .build();
-
-    Memory saved = memoryRepository.save(memory);
-    log.info("Manually added memory {} for session {}", saved.getId(), sessionId);
-
-    enforceMaxMemories(sessionId);
-
-    return saved;
-  }
-
-  @Override
-  @Transactional(readOnly = true)
-  public void validateMemoryOwnership(UUID memoryId, UUID sessionId) {
-    Memory memory = getMemory(memoryId);
-
-    if (!memory.getSession().getId().equals(sessionId)) {
-      throw new MemoryAccessDeniedException(memoryId, sessionId);
-    }
   }
 }

@@ -3,7 +3,6 @@ package com.flamingo.ai.notebooklm.api;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.flamingo.ai.notebooklm.api.rest.DocumentController;
-import com.flamingo.ai.notebooklm.api.rest.MemoryController;
 import com.flamingo.ai.notebooklm.api.rest.SessionController;
 import com.flamingo.ai.notebooklm.api.sse.ChatController;
 import org.junit.jupiter.api.DisplayName;
@@ -68,19 +67,6 @@ class ApiContractTest {
       RequestMapping mapping = ChatController.class.getAnnotation(RequestMapping.class);
       assertThat(mapping).isNotNull();
       assertThat(mapping.value()).containsExactly("/api/sessions/{sessionId}");
-    }
-  }
-
-  @Nested
-  @DisplayName("MemoryController API contract")
-  class MemoryControllerContract {
-
-    @Test
-    @DisplayName("should be mapped to /api/sessions/{sessionId}/memories")
-    void shouldBeMappedToApiSessionsMemories() {
-      RequestMapping mapping = MemoryController.class.getAnnotation(RequestMapping.class);
-      assertThat(mapping).isNotNull();
-      assertThat(mapping.value()).containsExactly("/api/sessions/{sessionId}/memories");
     }
   }
 }
