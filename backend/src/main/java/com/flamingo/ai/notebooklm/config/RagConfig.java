@@ -74,6 +74,7 @@ public class RagConfig {
   public static class QueryReformulation {
     private boolean enabled = true;
     private int historyWindow = 5;
+    private Integer candidatePoolMultiplier = 4;
     private int maxQueryLength = 500;
   }
 }

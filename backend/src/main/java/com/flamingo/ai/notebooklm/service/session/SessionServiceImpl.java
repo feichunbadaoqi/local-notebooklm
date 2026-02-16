@@ -8,6 +8,7 @@ import com.flamingo.ai.notebooklm.domain.enums.InteractionMode;
 import com.flamingo.ai.notebooklm.domain.repository.ChatMessageRepository;
 import com.flamingo.ai.notebooklm.domain.repository.DocumentRepository;
 import com.flamingo.ai.notebooklm.domain.repository.SessionRepository;
+import com.flamingo.ai.notebooklm.elasticsearch.ChatMessageIndexService;
 import com.flamingo.ai.notebooklm.elasticsearch.DocumentChunkIndexService;
 import com.flamingo.ai.notebooklm.exception.SessionNotFoundException;
 import io.micrometer.core.annotation.Timed;
@@ -30,6 +31,7 @@ public class SessionServiceImpl implements SessionService {
   private final ChatMessageRepository chatMessageRepository;
   private final MeterRegistry meterRegistry;
   private final DocumentChunkIndexService documentChunkIndexService;
+  private final ChatMessageIndexService chatMessageIndexService;
 
   @Override
   @Transactional
@@ -108,8 +110,10 @@ public class SessionServiceImpl implements SessionService {
       log.info("Deleted Elasticsearch document chunks for session: {}", sessionId);
       meterRegistry.counter("session.elasticsearch.chunks.deleted").increment();
 
-      // TODO Phase 3: Add chat message index cleanup
-      // chatMessageIndexService.deleteBySessionId(sessionId);
+      // Chat messages (Phase 3)
+      chatMessageIndexService.deleteBySessionId(sessionId);
+      log.info("Deleted Elasticsearch chat messages for session: {}", sessionId);
+      meterRegistry.counter("session.elasticsearch.messages.deleted").increment();
 
       // TODO Phase 4: Add memory index cleanup
       // memoryIndexService.deleteBySessionId(sessionId);

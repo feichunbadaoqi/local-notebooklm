@@ -44,6 +44,9 @@ class SessionServiceImplTest {
 
   @Mock private DocumentChunkIndexService documentChunkIndexService;
 
+  @Mock
+  private com.flamingo.ai.notebooklm.elasticsearch.ChatMessageIndexService chatMessageIndexService;
+
   @Mock private Counter counter;
 
   private SessionServiceImpl sessionService;
@@ -56,7 +59,8 @@ class SessionServiceImplTest {
             documentRepository,
             chatMessageRepository,
             meterRegistry,
-            documentChunkIndexService);
+            documentChunkIndexService,
+            chatMessageIndexService);
     when(meterRegistry.counter(any(String.class))).thenReturn(counter);
     when(meterRegistry.counter(any(String.class), any(String.class), any(String.class)))
         .thenReturn(counter);
@@ -231,8 +235,10 @@ class SessionServiceImplTest {
 
     // Then
     verify(documentChunkIndexService).deleteBySessionId(sessionId);
+    verify(chatMessageIndexService).deleteBySessionId(sessionId);
     verify(sessionRepository).delete(session);
-    verify(counter, times(2)).increment(); // ES chunks deleted + session deleted
+    verify(counter, times(3))
+        .increment(); // ES chunks deleted + ES messages deleted + session deleted
   }
 
   @Test

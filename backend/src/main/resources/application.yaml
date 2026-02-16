@@ -51,6 +51,7 @@ elasticsearch:
 app:
   elasticsearch:
     index-name: notebooklm-chunks
+    chat-message-index-name: notebooklm-chat-messages
     vector-dimensions: 3072
     # Text analyzer for multilingual support
     # Options:
@@ -93,7 +94,8 @@ rag:
     context-limit: 5           # Max memories in context
   query-reformulation:
     enabled: true              # Enable query reformulation for conversational RAG
-    history-window: 5          # Number of recent messages to consider
+    history-window: 5          # Number of relevant messages to return
+    candidate-pool-multiplier: 4  # Fetch 4x more candidates for hybrid search
     max-query-length: 500      # Maximum length of reformulated queries
   verification:
     enabled: true              # Enable answer verification (Stage 4)

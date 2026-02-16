@@ -10,11 +10,10 @@ import static org.mockito.Mockito.when;
 import com.flamingo.ai.notebooklm.agent.QueryReformulationAgent;
 import com.flamingo.ai.notebooklm.agent.dto.QueryReformulationResult;
 import com.flamingo.ai.notebooklm.config.RagConfig;
-import com.flamingo.ai.notebooklm.domain.entity.ChatMessage;
-import com.flamingo.ai.notebooklm.domain.entity.Session;
 import com.flamingo.ai.notebooklm.domain.enums.InteractionMode;
 import com.flamingo.ai.notebooklm.domain.enums.MessageRole;
-import com.flamingo.ai.notebooklm.domain.repository.ChatMessageRepository;
+import com.flamingo.ai.notebooklm.elasticsearch.ChatMessageDocument;
+import com.flamingo.ai.notebooklm.service.chat.ChatHistoryHybridSearchService;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.util.ArrayList;
@@ -31,7 +30,7 @@ class QueryReformulationServiceImplTest {
 
   @Mock private QueryReformulationAgent agent;
 
-  @Mock private ChatMessageRepository chatMessageRepository;
+  @Mock private ChatHistoryHybridSearchService chatHistoryHybridSearchService;
 
   @Mock private RagConfig ragConfig;
 
@@ -43,7 +42,8 @@ class QueryReformulationServiceImplTest {
   void setUp() {
     meterRegistry = new SimpleMeterRegistry();
     service =
-        new QueryReformulationServiceImpl(agent, chatMessageRepository, ragConfig, meterRegistry);
+        new QueryReformulationServiceImpl(
+            agent, chatHistoryHybridSearchService, ragConfig, meterRegistry);
   }
 
   @Test
@@ -54,7 +54,7 @@ class QueryReformulationServiceImplTest {
 
     RagConfig.QueryReformulation config = createConfig(true, 5, 500);
     when(ragConfig.getQueryReformulation()).thenReturn(config);
-    when(chatMessageRepository.findRecentNonCompactedMessages(sessionId, 5))
+    when(chatHistoryHybridSearchService.search(eq(sessionId), anyString(), eq(5)))
         .thenReturn(createHistory("Tell me about climate change", "Climate change refers to..."));
 
     // Mock agent to return standalone result
@@ -78,7 +78,7 @@ class QueryReformulationServiceImplTest {
 
     RagConfig.QueryReformulation config = createConfig(true, 5, 500);
     when(ragConfig.getQueryReformulation()).thenReturn(config);
-    when(chatMessageRepository.findRecentNonCompactedMessages(sessionId, 5))
+    when(chatHistoryHybridSearchService.search(eq(sessionId), anyString(), eq(5)))
         .thenReturn(
             createHistory("Tell me about solar panels", "Solar panels convert sunlight..."));
 
@@ -105,7 +105,7 @@ class QueryReformulationServiceImplTest {
 
     RagConfig.QueryReformulation config = createConfig(true, 5, 500);
     when(ragConfig.getQueryReformulation()).thenReturn(config);
-    when(chatMessageRepository.findRecentNonCompactedMessages(sessionId, 5))
+    when(chatHistoryHybridSearchService.search(eq(sessionId), anyString(), eq(5)))
         .thenReturn(
             createHistory(
                 "Tell me about the climate change report",
@@ -134,7 +134,7 @@ class QueryReformulationServiceImplTest {
 
     RagConfig.QueryReformulation config = createConfig(true, 5, 500);
     when(ragConfig.getQueryReformulation()).thenReturn(config);
-    when(chatMessageRepository.findRecentNonCompactedMessages(sessionId, 5))
+    when(chatHistoryHybridSearchService.search(eq(sessionId), anyString(), eq(5)))
         .thenReturn(createHistory("Tell me about climate change", "Climate change refers to..."));
 
     // Mock agent to throw exception
@@ -156,7 +156,8 @@ class QueryReformulationServiceImplTest {
 
     RagConfig.QueryReformulation config = createConfig(true, 5, 500);
     when(ragConfig.getQueryReformulation()).thenReturn(config);
-    when(chatMessageRepository.findRecentNonCompactedMessages(sessionId, 5)).thenReturn(List.of());
+    when(chatHistoryHybridSearchService.search(eq(sessionId), anyString(), eq(5)))
+        .thenReturn(List.of());
 
     // When
     String result = service.reformulate(sessionId, originalQuery, InteractionMode.EXPLORING);
@@ -192,7 +193,7 @@ class QueryReformulationServiceImplTest {
 
     RagConfig.QueryReformulation config = createConfig(true, 5, 500);
     when(ragConfig.getQueryReformulation()).thenReturn(config);
-    when(chatMessageRepository.findRecentNonCompactedMessages(sessionId, 5))
+    when(chatHistoryHybridSearchService.search(eq(sessionId), anyString(), eq(5)))
         .thenReturn(createHistory("Tell me about the book", "The book is about..."));
 
     when(agent.reformulate(anyString(), eq(originalQuery)))
@@ -213,7 +214,7 @@ class QueryReformulationServiceImplTest {
 
     RagConfig.QueryReformulation config = createConfig(true, 5, 500);
     when(ragConfig.getQueryReformulation()).thenReturn(config);
-    when(chatMessageRepository.findRecentNonCompactedMessages(sessionId, 5))
+    when(chatHistoryHybridSearchService.search(eq(sessionId), anyString(), eq(5)))
         .thenReturn(createHistory("Tell me about the book", "The book is about..."));
 
     when(agent.reformulate(anyString(), eq(originalQuery)))
@@ -235,15 +236,18 @@ class QueryReformulationServiceImplTest {
     RagConfig.QueryReformulation config = createConfig(true, 5, 500);
     when(ragConfig.getQueryReformulation()).thenReturn(config);
 
-    // findRecentNonCompactedMessages returns DESC order
-    List<ChatMessage> messages = new ArrayList<>();
-    Session session = new Session();
-    messages.add(createMessage(session, MessageRole.ASSISTANT, "Response 2"));
-    messages.add(createMessage(session, MessageRole.USER, "Query 2"));
-    messages.add(createMessage(session, MessageRole.ASSISTANT, "Response 1"));
-    messages.add(createMessage(session, MessageRole.USER, "Query 1"));
+    // Hybrid search returns messages already in semantic relevance order
+    // Service will sort by timestamp to get chronological order
+    List<ChatMessageDocument> messages = new ArrayList<>();
+    long now = System.currentTimeMillis();
+    messages.add(createMessageDoc(sessionId, MessageRole.USER.name(), "Query 1", now - 3000));
+    messages.add(
+        createMessageDoc(sessionId, MessageRole.ASSISTANT.name(), "Response 1", now - 2000));
+    messages.add(createMessageDoc(sessionId, MessageRole.USER.name(), "Query 2", now - 1000));
+    messages.add(createMessageDoc(sessionId, MessageRole.ASSISTANT.name(), "Response 2", now));
 
-    when(chatMessageRepository.findRecentNonCompactedMessages(sessionId, 5)).thenReturn(messages);
+    when(chatHistoryHybridSearchService.search(eq(sessionId), anyString(), eq(5)))
+        .thenReturn(messages);
 
     when(agent.reformulate(anyString(), eq(originalQuery)))
         .thenReturn(new QueryReformulationResult(false, originalQuery, "Test"));
@@ -266,19 +270,27 @@ class QueryReformulationServiceImplTest {
     return config;
   }
 
-  private List<ChatMessage> createHistory(String userMsg, String assistantMsg) {
-    Session session = new Session();
-    List<ChatMessage> messages = new ArrayList<>();
-    messages.add(createMessage(session, MessageRole.ASSISTANT, assistantMsg));
-    messages.add(createMessage(session, MessageRole.USER, userMsg));
+  private List<ChatMessageDocument> createHistory(String userMsg, String assistantMsg) {
+    UUID sessionId = UUID.randomUUID();
+    List<ChatMessageDocument> messages = new ArrayList<>();
+    messages.add(
+        createMessageDoc(
+            sessionId, MessageRole.ASSISTANT.name(), assistantMsg, System.currentTimeMillis()));
+    messages.add(
+        createMessageDoc(
+            sessionId, MessageRole.USER.name(), userMsg, System.currentTimeMillis() - 1000));
     return messages;
   }
 
-  private ChatMessage createMessage(Session session, MessageRole role, String content) {
-    ChatMessage message = new ChatMessage();
-    message.setSession(session);
-    message.setRole(role);
-    message.setContent(content);
-    return message;
+  private ChatMessageDocument createMessageDoc(
+      UUID sessionId, String role, String content, long timestamp) {
+    return ChatMessageDocument.builder()
+        .id(UUID.randomUUID().toString())
+        .sessionId(sessionId)
+        .role(role)
+        .content(content)
+        .timestamp(timestamp)
+        .tokenCount(content.length() / 4)
+        .build();
   }
 }

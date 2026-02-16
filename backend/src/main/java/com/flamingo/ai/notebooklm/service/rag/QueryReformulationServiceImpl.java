@@ -3,10 +3,9 @@ package com.flamingo.ai.notebooklm.service.rag;
 import com.flamingo.ai.notebooklm.agent.QueryReformulationAgent;
 import com.flamingo.ai.notebooklm.agent.dto.QueryReformulationResult;
 import com.flamingo.ai.notebooklm.config.RagConfig;
-import com.flamingo.ai.notebooklm.domain.entity.ChatMessage;
 import com.flamingo.ai.notebooklm.domain.enums.InteractionMode;
-import com.flamingo.ai.notebooklm.domain.enums.MessageRole;
-import com.flamingo.ai.notebooklm.domain.repository.ChatMessageRepository;
+import com.flamingo.ai.notebooklm.elasticsearch.ChatMessageDocument;
+import com.flamingo.ai.notebooklm.service.chat.ChatHistoryHybridSearchService;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import io.micrometer.core.annotation.Timed;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -22,7 +21,7 @@ import org.springframework.stereotype.Service;
 public class QueryReformulationServiceImpl implements QueryReformulationService {
 
   private final QueryReformulationAgent agent;
-  private final ChatMessageRepository chatMessageRepository;
+  private final ChatHistoryHybridSearchService chatHistoryHybridSearchService;
   private final RagConfig ragConfig;
   private final MeterRegistry meterRegistry;
 
@@ -36,18 +35,21 @@ public class QueryReformulationServiceImpl implements QueryReformulationService 
     }
 
     try {
-      // Retrieve conversation history
+      // Retrieve semantically relevant conversation history using hybrid search
       int historyWindow = ragConfig.getQueryReformulation().getHistoryWindow();
-      List<ChatMessage> recentMessages =
-          chatMessageRepository.findRecentNonCompactedMessages(sessionId, historyWindow);
+      List<ChatMessageDocument> relevantMessages =
+          chatHistoryHybridSearchService.search(sessionId, originalQuery, historyWindow);
 
-      if (recentMessages.isEmpty()) {
+      if (relevantMessages.isEmpty()) {
         log.debug("No conversation history for session {}, skipping reformulation", sessionId);
         return originalQuery;
       }
 
-      // Build conversation history string
-      String conversationHistory = buildConversationHistory(recentMessages);
+      // Build conversation history string from relevant messages
+      String conversationHistory = buildConversationHistoryFromDocuments(relevantMessages);
+      log.debug(
+          "Using {} semantically relevant messages for query reformulation",
+          relevantMessages.size());
 
       // Call AI agent
       QueryReformulationResult result = agent.reformulate(conversationHistory, originalQuery);
@@ -91,12 +93,16 @@ public class QueryReformulationServiceImpl implements QueryReformulationService 
     return originalQuery;
   }
 
-  private String buildConversationHistory(List<ChatMessage> messages) {
+  private String buildConversationHistoryFromDocuments(List<ChatMessageDocument> messages) {
     StringBuilder history = new StringBuilder();
-    // Reverse to get chronological order (findRecentNonCompactedMessages returns DESC)
-    for (int i = messages.size() - 1; i >= 0; i--) {
-      ChatMessage msg = messages.get(i);
-      String role = msg.getRole() == MessageRole.USER ? "User" : "Assistant";
+    // Sort by timestamp to get chronological order
+    List<ChatMessageDocument> sorted =
+        messages.stream()
+            .sorted((a, b) -> Long.compare(a.getTimestamp(), b.getTimestamp()))
+            .toList();
+
+    for (ChatMessageDocument msg : sorted) {
+      String role = "USER".equals(msg.getRole()) ? "User" : "Assistant";
       history.append(role).append(": ").append(msg.getContent()).append("\n");
     }
     return history.toString().trim();

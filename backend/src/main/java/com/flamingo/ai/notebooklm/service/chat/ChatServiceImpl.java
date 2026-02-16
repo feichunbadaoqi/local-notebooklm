@@ -10,8 +10,11 @@ import com.flamingo.ai.notebooklm.domain.enums.InteractionMode;
 import com.flamingo.ai.notebooklm.domain.enums.MessageRole;
 import com.flamingo.ai.notebooklm.domain.repository.ChatMessageRepository;
 import com.flamingo.ai.notebooklm.domain.repository.ChatSummaryRepository;
+import com.flamingo.ai.notebooklm.elasticsearch.ChatMessageDocument;
+import com.flamingo.ai.notebooklm.elasticsearch.ChatMessageIndexService;
 import com.flamingo.ai.notebooklm.elasticsearch.DocumentChunk;
 import com.flamingo.ai.notebooklm.service.memory.MemoryService;
+import com.flamingo.ai.notebooklm.service.rag.EmbeddingService;
 import com.flamingo.ai.notebooklm.service.rag.HybridSearchService;
 import com.flamingo.ai.notebooklm.service.rag.QueryReformulationService;
 import com.flamingo.ai.notebooklm.service.session.SessionService;
@@ -54,6 +57,8 @@ public class ChatServiceImpl implements ChatService {
   private final RagConfig ragConfig;
   private final MeterRegistry meterRegistry;
   private final com.flamingo.ai.notebooklm.service.rag.RetrievalConfidenceService confidenceService;
+  private final ChatMessageIndexService chatMessageIndexService;
+  private final EmbeddingService embeddingService;
 
   @Override
   @Timed(value = "chat.stream", description = "Time to stream chat response")
@@ -319,7 +324,31 @@ public class ChatServiceImpl implements ChatService {
             .isCompacted(false)
             .build();
 
-    return chatMessageRepository.save(message);
+    ChatMessage saved = chatMessageRepository.save(message);
+
+    // Index to Elasticsearch asynchronously for semantic search
+    try {
+      List<Float> embedding = embeddingService.embedText(content);
+      ChatMessageDocument doc =
+          ChatMessageDocument.builder()
+              .id(saved.getId().toString())
+              .sessionId(session.getId())
+              .role(role.name())
+              .content(content)
+              .embedding(embedding)
+              .timestamp(System.currentTimeMillis())
+              .tokenCount(saved.getTokenCount())
+              .build();
+
+      chatMessageIndexService.indexMessages(List.of(doc));
+      log.debug("Indexed chat message {} to Elasticsearch", saved.getId());
+    } catch (Exception e) {
+      // Don't fail the request if ES indexing fails
+      log.warn(
+          "Failed to index chat message {} to Elasticsearch: {}", saved.getId(), e.getMessage());
+    }
+
+    return saved;
   }
 
   private int estimateTokenCount(String text) {

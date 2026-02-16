@@ -63,6 +63,11 @@ class ChatServiceImplTest {
 
   @Mock private com.flamingo.ai.notebooklm.service.rag.RetrievalConfidenceService confidenceService;
 
+  @Mock
+  private com.flamingo.ai.notebooklm.elasticsearch.ChatMessageIndexService chatMessageIndexService;
+
+  @Mock private com.flamingo.ai.notebooklm.service.rag.EmbeddingService embeddingService;
+
   private RagConfig ragConfig;
   private ChatServiceImpl chatService;
 
@@ -87,7 +92,9 @@ class ChatServiceImplTest {
             queryReformulationService,
             ragConfig,
             meterRegistry,
-            confidenceService);
+            confidenceService,
+            chatMessageIndexService,
+            embeddingService);
 
     sessionId = UUID.randomUUID();
     session =
