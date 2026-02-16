@@ -1,7 +1,7 @@
 package com.flamingo.ai.notebooklm.service.rag;
 
+import com.flamingo.ai.notebooklm.agent.AnswerVerificationAgent;
 import com.flamingo.ai.notebooklm.elasticsearch.DocumentChunk;
-import dev.langchain4j.model.chat.ChatModel;
 import io.micrometer.core.annotation.Timed;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.util.ArrayList;
@@ -30,7 +30,7 @@ import org.springframework.stereotype.Service;
 @Slf4j
 public class AnswerVerificationService {
 
-  private final ChatModel chatModel;
+  private final AnswerVerificationAgent agent;
   private final MeterRegistry meterRegistry;
 
   @Value("${rag.verification.support-threshold:0.7}")
@@ -150,28 +150,11 @@ public class AnswerVerificationService {
    * @return support score (0.0 = not supported, 1.0 = fully supported)
    */
   private double scoreSupportLevel(String claim, String evidence) {
-    String prompt =
-        String.format(
-            """
-                Does the evidence fully support the claim? Answer with a score from 0.0 to 1.0.
-
-                Scoring:
-                - 1.0: Evidence completely supports the claim with direct statements
-                - 0.7-0.9: Evidence strongly supports the claim with clear implications
-                - 0.4-0.6: Evidence partially supports the claim
-                - 0.1-0.3: Evidence weakly relates to the claim
-                - 0.0: Evidence does not support or contradicts the claim
-
-                Claim: %s
-
-                Evidence: %s
-
-                Return ONLY the numeric score (e.g., 0.8). Do not include explanations.
-                Score: """,
-            claim, evidence.substring(0, Math.min(1000, evidence.length())));
-
     try {
-      String response = chatModel.chat(prompt);
+      // Truncate evidence if too long
+      String truncatedEvidence = evidence.substring(0, Math.min(1000, evidence.length()));
+      String response = agent.scoreSupportLevel(claim, truncatedEvidence);
+
       // Extract first number from response
       String cleaned = response.trim().replaceAll("[^0-9.]", "");
       double score = Double.parseDouble(cleaned);

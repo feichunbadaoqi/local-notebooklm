@@ -1,5 +1,6 @@
 package com.flamingo.ai.notebooklm.service.chat;
 
+import com.flamingo.ai.notebooklm.agent.ChatCompactionAgent;
 import com.flamingo.ai.notebooklm.config.RagConfig;
 import com.flamingo.ai.notebooklm.domain.entity.ChatMessage;
 import com.flamingo.ai.notebooklm.domain.entity.ChatSummary;
@@ -7,7 +8,6 @@ import com.flamingo.ai.notebooklm.domain.entity.Session;
 import com.flamingo.ai.notebooklm.domain.repository.ChatMessageRepository;
 import com.flamingo.ai.notebooklm.domain.repository.ChatSummaryRepository;
 import com.flamingo.ai.notebooklm.service.session.SessionService;
-import dev.langchain4j.model.chat.ChatModel;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import io.micrometer.core.annotation.Timed;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -34,7 +34,7 @@ public class ChatCompactionService {
   private final ChatMessageRepository chatMessageRepository;
   private final ChatSummaryRepository chatSummaryRepository;
   private final SessionService sessionService;
-  private final ChatModel chatModel;
+  private final ChatCompactionAgent agent;
   private final RagConfig ragConfig;
   private final MeterRegistry meterRegistry;
 
@@ -159,18 +159,14 @@ public class ChatCompactionService {
 
   private String generateSummary(List<ChatMessage> messages) {
     StringBuilder conversation = new StringBuilder();
-    conversation.append("Summarize the following conversation concisely, ");
-    conversation.append("preserving key facts, decisions, and context:\n\n");
 
     for (ChatMessage message : messages) {
       conversation.append(message.getRole().name()).append(": ");
       conversation.append(message.getContent()).append("\n\n");
     }
 
-    String prompt = conversation.toString();
-
     try {
-      return chatModel.chat(prompt);
+      return agent.summarizeConversation(conversation.toString());
     } catch (Exception e) {
       log.error("Failed to generate summary: {}", e.getMessage());
       // Fallback: just concatenate first sentences

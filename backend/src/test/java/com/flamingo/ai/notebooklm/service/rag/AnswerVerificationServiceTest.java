@@ -5,8 +5,8 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
+import com.flamingo.ai.notebooklm.agent.AnswerVerificationAgent;
 import com.flamingo.ai.notebooklm.elasticsearch.DocumentChunk;
-import dev.langchain4j.model.chat.ChatModel;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.util.ArrayList;
@@ -24,7 +24,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 @DisplayName("AnswerVerificationService Tests")
 class AnswerVerificationServiceTest {
 
-  @Mock private ChatModel chatModel;
+  @Mock private AnswerVerificationAgent agent;
   @Mock private MeterRegistry meterRegistry;
   @Mock private Counter counter;
 
@@ -34,7 +34,7 @@ class AnswerVerificationServiceTest {
   void setUp() {
     lenient().when(meterRegistry.counter(anyString())).thenReturn(counter);
 
-    verificationService = new AnswerVerificationService(chatModel, meterRegistry);
+    verificationService = new AnswerVerificationService(agent, meterRegistry);
     ReflectionTestUtils.setField(verificationService, "supportThreshold", 0.7);
     ReflectionTestUtils.setField(verificationService, "enabled", true);
   }
@@ -47,7 +47,7 @@ class AnswerVerificationServiceTest {
             + " [Source 1]";
     List<DocumentChunk> evidence = createEvidence("Machine learning is indeed a subset of AI.");
 
-    when(chatModel.chat(anyString())).thenReturn("0.9");
+    when(agent.scoreSupportLevel(anyString(), anyString())).thenReturn("0.9");
 
     AnswerVerificationService.VerificationResult result =
         verificationService.verify(answer, evidence);
@@ -63,7 +63,7 @@ class AnswerVerificationServiceTest {
         "Machine learning was invented in 1950. [Source 1]"; // Not supported by evidence
     List<DocumentChunk> evidence = createEvidence("Machine learning became popular in the 2000s.");
 
-    when(chatModel.chat(anyString())).thenReturn("0.3"); // Low support score
+    when(agent.scoreSupportLevel(anyString(), anyString())).thenReturn("0.3"); // Low support score
 
     AnswerVerificationService.VerificationResult result =
         verificationService.verify(answer, evidence);
@@ -83,7 +83,7 @@ class AnswerVerificationServiceTest {
             "Deep learning uses multi-layer neural networks.",
             "Convolutional neural networks excel at image processing.");
 
-    when(chatModel.chat(anyString())).thenReturn("0.9"); // High support
+    when(agent.scoreSupportLevel(anyString(), anyString())).thenReturn("0.9"); // High support
 
     AnswerVerificationService.VerificationResult result =
         verificationService.verify(answer, evidence);
@@ -99,7 +99,7 @@ class AnswerVerificationServiceTest {
     List<DocumentChunk> evidence =
         createEvidence("Machine learning is very powerful.", "ML systems learn from data.");
 
-    when(chatModel.chat(anyString())).thenReturn("0.8");
+    when(agent.scoreSupportLevel(anyString(), anyString())).thenReturn("0.8");
 
     AnswerVerificationService.VerificationResult result =
         verificationService.verify(answer, evidence);
@@ -114,7 +114,7 @@ class AnswerVerificationServiceTest {
     List<DocumentChunk> evidence =
         createEvidence("Neural networks consist of layers.", "They process inputs sequentially.");
 
-    when(chatModel.chat(anyString())).thenReturn("0.85");
+    when(agent.scoreSupportLevel(anyString(), anyString())).thenReturn("0.85");
 
     AnswerVerificationService.VerificationResult result =
         verificationService.verify(answer, evidence);
@@ -203,7 +203,7 @@ class AnswerVerificationServiceTest {
     String answer = "Machine learning is AI. [Source 1]";
     List<DocumentChunk> evidence = createEvidence("Machine learning is part of AI.");
 
-    when(chatModel.chat(anyString())).thenReturn("invalid");
+    when(agent.scoreSupportLevel(anyString(), anyString())).thenReturn("invalid");
 
     AnswerVerificationService.VerificationResult result =
         verificationService.verify(answer, evidence);
@@ -218,7 +218,8 @@ class AnswerVerificationServiceTest {
     String answer = "Machine learning learns from data. [Source 1]";
     List<DocumentChunk> evidence = createEvidence("ML uses data to learn.");
 
-    when(chatModel.chat(anyString())).thenThrow(new RuntimeException("LLM API error"));
+    when(agent.scoreSupportLevel(anyString(), anyString()))
+        .thenThrow(new RuntimeException("LLM API error"));
 
     AnswerVerificationService.VerificationResult result =
         verificationService.verify(answer, evidence);
@@ -250,7 +251,8 @@ class AnswerVerificationServiceTest {
     String answer = "Medium support claim. [Source 1]";
     List<DocumentChunk> evidence = createEvidence("Some evidence");
 
-    when(chatModel.chat(anyString())).thenReturn("0.6"); // Above 0.5 threshold
+    when(agent.scoreSupportLevel(anyString(), anyString()))
+        .thenReturn("0.6"); // Above 0.5 threshold
 
     AnswerVerificationService.VerificationResult result =
         verificationService.verify(answer, evidence);
@@ -265,7 +267,7 @@ class AnswerVerificationServiceTest {
         "Machine learning is powerful. Neural networks are used. Both use data. [Source 1]";
     List<DocumentChunk> evidence = createEvidence("ML and neural networks both use data.");
 
-    when(chatModel.chat(anyString())).thenReturn("0.8");
+    when(agent.scoreSupportLevel(anyString(), anyString())).thenReturn("0.8");
 
     AnswerVerificationService.VerificationResult result =
         verificationService.verify(answer, evidence);
@@ -283,7 +285,7 @@ class AnswerVerificationServiceTest {
     }
     List<DocumentChunk> evidence = createEvidence(longEvidence.toString());
 
-    when(chatModel.chat(anyString())).thenReturn("0.8");
+    when(agent.scoreSupportLevel(anyString(), anyString())).thenReturn("0.8");
 
     AnswerVerificationService.VerificationResult result =
         verificationService.verify(answer, evidence);

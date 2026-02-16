@@ -5,8 +5,8 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
+import com.flamingo.ai.notebooklm.agent.CrossEncoderRerankerAgent;
 import com.flamingo.ai.notebooklm.elasticsearch.DocumentChunk;
-import dev.langchain4j.model.chat.ChatModel;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.util.ArrayList;
@@ -24,7 +24,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 @DisplayName("CrossEncoderReranker Tests")
 class CrossEncoderRerankerTest {
 
-  @Mock private ChatModel chatModel;
+  @Mock private CrossEncoderRerankerAgent agent;
   @Mock private MeterRegistry meterRegistry;
   @Mock private Counter counter;
 
@@ -34,7 +34,7 @@ class CrossEncoderRerankerTest {
   void setUp() {
     lenient().when(meterRegistry.counter(anyString())).thenReturn(counter);
 
-    reranker = new CrossEncoderReranker(chatModel, meterRegistry);
+    reranker = new CrossEncoderReranker(agent, meterRegistry);
     ReflectionTestUtils.setField(reranker, "batchSize", 20);
     ReflectionTestUtils.setField(reranker, "enabled", true);
   }
@@ -50,7 +50,7 @@ class CrossEncoderRerankerTest {
     String query = "machine learning";
 
     // Mock LLM to return scores in order: 0.3, 0.9, 0.6
-    when(chatModel.chat(anyString())).thenReturn("0.3,0.9,0.6");
+    when(agent.scorePassages(anyString(), anyString())).thenReturn("0.3,0.9,0.6");
 
     List<CrossEncoderReranker.ScoredChunk> results = reranker.rerank(query, candidates, 3);
 
@@ -67,7 +67,8 @@ class CrossEncoderRerankerTest {
     List<DocumentChunk> candidates = createChunks(10);
     String query = "test query";
 
-    when(chatModel.chat(anyString())).thenReturn("0.9,0.8,0.7,0.6,0.5,0.4,0.3,0.2,0.1,0.05");
+    when(agent.scorePassages(anyString(), anyString()))
+        .thenReturn("0.9,0.8,0.7,0.6,0.5,0.4,0.3,0.2,0.1,0.05");
 
     List<CrossEncoderReranker.ScoredChunk> results = reranker.rerank(query, candidates, 5);
 
@@ -96,7 +97,7 @@ class CrossEncoderRerankerTest {
     String query = "test query";
 
     // Mock responses for 3 batches
-    when(chatModel.chat(anyString()))
+    when(agent.scorePassages(anyString(), anyString()))
         .thenReturn("0.9,0.8,0.7,0.6,0.5") // Batch 1
         .thenReturn("0.4,0.3,0.2,0.1,0.05") // Batch 2
         .thenReturn("0.95,0.85"); // Batch 3
@@ -116,7 +117,7 @@ class CrossEncoderRerankerTest {
     String query = "test query";
 
     // LLM returns invalid format
-    when(chatModel.chat(anyString())).thenReturn("invalid response");
+    when(agent.scorePassages(anyString(), anyString())).thenReturn("invalid response");
 
     List<CrossEncoderReranker.ScoredChunk> results = reranker.rerank(query, candidates, 3);
 
@@ -132,7 +133,7 @@ class CrossEncoderRerankerTest {
     String query = "test query";
 
     // LLM returns out-of-range scores
-    when(chatModel.chat(anyString())).thenReturn("1.5,-0.3,0.7");
+    when(agent.scorePassages(anyString(), anyString())).thenReturn("1.5,-0.3,0.7");
 
     List<CrossEncoderReranker.ScoredChunk> results = reranker.rerank(query, candidates, 3);
 
@@ -149,7 +150,7 @@ class CrossEncoderRerankerTest {
     String query = "test query";
 
     // LLM returns only 3 scores for 5 candidates
-    when(chatModel.chat(anyString())).thenReturn("0.9,0.8,0.7");
+    when(agent.scorePassages(anyString(), anyString())).thenReturn("0.9,0.8,0.7");
 
     List<CrossEncoderReranker.ScoredChunk> results = reranker.rerank(query, candidates, 5);
 
@@ -173,7 +174,8 @@ class CrossEncoderRerankerTest {
     String query = "test query";
 
     // LLM throws exception
-    when(chatModel.chat(anyString())).thenThrow(new RuntimeException("LLM API error"));
+    when(agent.scorePassages(anyString(), anyString()))
+        .thenThrow(new RuntimeException("LLM API error"));
 
     List<CrossEncoderReranker.ScoredChunk> results = reranker.rerank(query, candidates, 3);
 
@@ -210,7 +212,7 @@ class CrossEncoderRerankerTest {
     String query = "test query";
 
     // LLM returns scores with whitespace
-    when(chatModel.chat(anyString())).thenReturn("  0.9 ,  0.7  , 0.5  ");
+    when(agent.scorePassages(anyString(), anyString())).thenReturn("  0.9 ,  0.7  , 0.5  ");
 
     List<CrossEncoderReranker.ScoredChunk> results = reranker.rerank(query, candidates, 3);
 

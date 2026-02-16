@@ -1,5 +1,8 @@
 package com.flamingo.ai.notebooklm.config;
 
+import com.flamingo.ai.notebooklm.agent.AnswerVerificationAgent;
+import com.flamingo.ai.notebooklm.agent.ChatCompactionAgent;
+import com.flamingo.ai.notebooklm.agent.CrossEncoderRerankerAgent;
 import com.flamingo.ai.notebooklm.agent.MemoryExtractionAgent;
 import com.flamingo.ai.notebooklm.agent.QueryReformulationAgent;
 import dev.langchain4j.model.chat.ChatModel;
@@ -32,5 +35,32 @@ public class AiAgentConfig {
   @Bean
   public MemoryExtractionAgent memoryExtractionAgent(ChatModel chatModel) {
     return AiServices.builder(MemoryExtractionAgent.class).chatModel(chatModel).build();
+  }
+
+  /**
+   * Cross-encoder reranker agent for scoring passage relevance. Uses ChatModel for semantic scoring
+   * of query-passage pairs.
+   */
+  @Bean
+  public CrossEncoderRerankerAgent crossEncoderRerankerAgent(ChatModel chatModel) {
+    return AiServices.builder(CrossEncoderRerankerAgent.class).chatModel(chatModel).build();
+  }
+
+  /**
+   * Chat compaction agent for summarizing conversation history. Uses ChatModel to generate concise
+   * summaries preserving key facts.
+   */
+  @Bean
+  public ChatCompactionAgent chatCompactionAgent(ChatModel chatModel) {
+    return AiServices.builder(ChatCompactionAgent.class).chatModel(chatModel).build();
+  }
+
+  /**
+   * Answer verification agent for fact-checking claims against evidence. Uses ChatModel to score
+   * claim-evidence support levels.
+   */
+  @Bean
+  public AnswerVerificationAgent answerVerificationAgent(ChatModel chatModel) {
+    return AiServices.builder(AnswerVerificationAgent.class).chatModel(chatModel).build();
   }
 }

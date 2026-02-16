@@ -1,7 +1,7 @@
 package com.flamingo.ai.notebooklm.service.rag;
 
+import com.flamingo.ai.notebooklm.agent.CrossEncoderRerankerAgent;
 import com.flamingo.ai.notebooklm.elasticsearch.DocumentChunk;
-import dev.langchain4j.model.chat.ChatModel;
 import io.micrometer.core.annotation.Timed;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.util.ArrayList;
@@ -21,7 +21,7 @@ import org.springframework.stereotype.Service;
 @Slf4j
 public class CrossEncoderReranker {
 
-  private final ChatModel chatModel;
+  private final CrossEncoderRerankerAgent agent;
   private final MeterRegistry meterRegistry;
 
   @Value("${rag.reranking.cross-encoder.batch-size:20}")
@@ -66,10 +66,10 @@ public class CrossEncoderReranker {
       List<DocumentChunk> batch = candidates.subList(i, end);
 
       log.debug("Processing batch {}-{} of {}", i, end, candidates.size());
-      String prompt = buildRerankPrompt(query, batch);
+      String passages = buildPassagesString(batch);
 
       try {
-        String response = chatModel.chat(prompt);
+        String response = agent.scorePassages(query, passages);
         List<Double> scores = parseScores(response, batch.size());
 
         for (int j = 0; j < batch.size(); j++) {
@@ -103,24 +103,13 @@ public class CrossEncoderReranker {
   }
 
   /**
-   * Builds the reranking prompt with query and candidate passages.
+   * Builds formatted passages string for agent.
    *
-   * @param query the search query
    * @param batch batch of candidate chunks
-   * @return LLM prompt for scoring
+   * @return formatted passages string
    */
-  private String buildRerankPrompt(String query, List<DocumentChunk> batch) {
+  private String buildPassagesString(List<DocumentChunk> batch) {
     StringBuilder sb = new StringBuilder();
-    sb.append("Score the relevance of each passage to the query on a scale of 0.0 to 1.0.\n\n");
-    sb.append("Instructions:\n");
-    sb.append("- 1.0 = Perfectly answers the query with precise information\n");
-    sb.append("- 0.7-0.9 = Highly relevant, contains most needed information\n");
-    sb.append("- 0.4-0.6 = Somewhat relevant, contains related information\n");
-    sb.append("- 0.1-0.3 = Marginally relevant, tangentially related\n");
-    sb.append("- 0.0 = Not relevant at all\n\n");
-
-    sb.append("Query: ").append(query).append("\n\n");
-    sb.append("Passages:\n");
 
     for (int i = 0; i < batch.size(); i++) {
       DocumentChunk chunk = batch.get(i);
@@ -133,10 +122,6 @@ public class CrossEncoderReranker {
 
       sb.append("[").append(i).append("] ").append(content).append("\n\n");
     }
-
-    sb.append("Return ONLY a comma-separated list of scores (0.0-1.0) in order.\n");
-    sb.append("Example: 0.8,0.3,0.9,0.5\n\n");
-    sb.append("Scores: ");
 
     return sb.toString();
   }
