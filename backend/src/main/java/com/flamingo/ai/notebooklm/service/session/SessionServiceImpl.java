@@ -8,6 +8,7 @@ import com.flamingo.ai.notebooklm.domain.enums.InteractionMode;
 import com.flamingo.ai.notebooklm.domain.repository.ChatMessageRepository;
 import com.flamingo.ai.notebooklm.domain.repository.DocumentRepository;
 import com.flamingo.ai.notebooklm.domain.repository.SessionRepository;
+import com.flamingo.ai.notebooklm.elasticsearch.DocumentChunkIndexService;
 import com.flamingo.ai.notebooklm.exception.SessionNotFoundException;
 import io.micrometer.core.annotation.Timed;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -28,6 +29,7 @@ public class SessionServiceImpl implements SessionService {
   private final DocumentRepository documentRepository;
   private final ChatMessageRepository chatMessageRepository;
   private final MeterRegistry meterRegistry;
+  private final DocumentChunkIndexService documentChunkIndexService;
 
   @Override
   @Transactional
@@ -98,6 +100,26 @@ public class SessionServiceImpl implements SessionService {
   @Timed(value = "session.delete", description = "Time to delete a session")
   public void deleteSession(UUID sessionId) {
     Session session = getSession(sessionId);
+
+    // Delete ALL Elasticsearch indices BEFORE SQLite cascade
+    try {
+      // Document chunks
+      documentChunkIndexService.deleteBySessionId(sessionId);
+      log.info("Deleted Elasticsearch document chunks for session: {}", sessionId);
+      meterRegistry.counter("session.elasticsearch.chunks.deleted").increment();
+
+      // TODO Phase 3: Add chat message index cleanup
+      // chatMessageIndexService.deleteBySessionId(sessionId);
+
+      // TODO Phase 4: Add memory index cleanup
+      // memoryIndexService.deleteBySessionId(sessionId);
+
+    } catch (Exception e) {
+      log.error("Failed to delete ES data for session {}: {}", sessionId, e.getMessage());
+      // Continue - don't fail session deletion if ES cleanup fails
+    }
+
+    // Delete session (JPA cascade handles SQLite cleanup)
     sessionRepository.delete(session);
 
     log.info("Deleted session: {}", sessionId);

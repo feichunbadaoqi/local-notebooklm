@@ -3,6 +3,7 @@ package com.flamingo.ai.notebooklm.service.session;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -13,6 +14,7 @@ import com.flamingo.ai.notebooklm.domain.enums.InteractionMode;
 import com.flamingo.ai.notebooklm.domain.repository.ChatMessageRepository;
 import com.flamingo.ai.notebooklm.domain.repository.DocumentRepository;
 import com.flamingo.ai.notebooklm.domain.repository.SessionRepository;
+import com.flamingo.ai.notebooklm.elasticsearch.DocumentChunkIndexService;
 import com.flamingo.ai.notebooklm.exception.SessionNotFoundException;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -40,6 +42,8 @@ class SessionServiceImplTest {
 
   @Mock private MeterRegistry meterRegistry;
 
+  @Mock private DocumentChunkIndexService documentChunkIndexService;
+
   @Mock private Counter counter;
 
   private SessionServiceImpl sessionService;
@@ -48,7 +52,11 @@ class SessionServiceImplTest {
   void setUp() {
     sessionService =
         new SessionServiceImpl(
-            sessionRepository, documentRepository, chatMessageRepository, meterRegistry);
+            sessionRepository,
+            documentRepository,
+            chatMessageRepository,
+            meterRegistry,
+            documentChunkIndexService);
     when(meterRegistry.counter(any(String.class))).thenReturn(counter);
     when(meterRegistry.counter(any(String.class), any(String.class), any(String.class)))
         .thenReturn(counter);
@@ -222,8 +230,9 @@ class SessionServiceImplTest {
     sessionService.deleteSession(sessionId);
 
     // Then
+    verify(documentChunkIndexService).deleteBySessionId(sessionId);
     verify(sessionRepository).delete(session);
-    verify(counter).increment();
+    verify(counter, times(2)).increment(); // ES chunks deleted + session deleted
   }
 
   @Test
