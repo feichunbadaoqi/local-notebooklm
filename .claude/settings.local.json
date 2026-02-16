@@ -47,7 +47,13 @@
       "Bash(Select-Object -First 10)",
       "Bash(Get-ChildItem -Path \"E:\\\\workspaces\\\\aicoderpg\\\\notebooklm\\\\backend\\\\build\\\\reports\\\\tests\\\\test\" -Recurse -Filter \"*.html\")",
       "Bash(Select-Object -First 10 FullName)",
-      "Bash(.gradlew test:*)"
+      "Bash(.gradlew test:*)",
+      "Bash(Get-ChildItem -Path \"E:\\\\workspaces\\\\aicoderpg\\\\notebooklm\\\\backend\\\\src\\\\test\\\\java\" -Recurse -Filter \"*MemoryController*\")",
+      "Bash(Select-Object -ExpandProperty FullName)",
+      "Bash(Remove-Item \"backend\\\\src\\\\main\\\\java\\\\com\\\\flamingo\\\\ai\\\\notebooklm\\\\api\\\\rest\\\\MemoryController.java\")",
+      "Bash(Remove-Item \"backend\\\\src\\\\main\\\\java\\\\com\\\\flamingo\\\\ai\\\\notebooklm\\\\api\\\\dto\\\\request\\\\CreateMemoryRequest.java\")",
+      "Bash(Remove-Item:*)",
+      "Bash(./gradlew jacocoTestReport:*)"
     ]
   }
 }
