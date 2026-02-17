@@ -85,13 +85,9 @@ rag:
     rrf-k: 60  # Reciprocal Rank Fusion constant
     candidates-multiplier: 3  # Fetch 3x candidates for hybrid search
   reranking:
-    # True cross-encoder using Elasticsearch Inference API
-    cross-encoder:
-      enabled: true
-      model-id: "elastic-rerank"  # Options: elastic-rerank, cohere-rerank, jinaai-rerank
-    # LLM-based reranking (optional, for A/B testing)
+    # LLM-based reranking via GPT-4o-mini (replaces Elasticsearch cross-encoder which requires Platinum license)
     llm:
-      enabled: false  # Disable when using cross-encoder
+      enabled: true
       batch-size: 20
   compaction:
     sliding-window-size: 10
