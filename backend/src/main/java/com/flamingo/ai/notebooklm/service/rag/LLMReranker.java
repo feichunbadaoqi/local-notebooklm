@@ -13,35 +13,38 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 /**
- * Cross-encoder reranker that scores query-passage relevance using an LLM. Provides semantic
- * reranking after RRF fusion for significant quality improvements.
+ * LLM-based semantic reranking using GPT-4o-mini. Scores query-passage relevance by calling
+ * OpenAI's chat model to evaluate relevance. Provides semantic reranking after RRF fusion.
+ *
+ * <p>Note: This is NOT a true cross-encoder model, but uses an LLM to perform semantic scoring. For
+ * true cross-encoder reranking, see CrossEncoderRerankService.
  */
 @Service
 @RequiredArgsConstructor
 @Slf4j
-public class CrossEncoderReranker {
+public class LLMReranker {
 
   private final CrossEncoderRerankerAgent agent;
   private final MeterRegistry meterRegistry;
 
-  @Value("${rag.reranking.cross-encoder.batch-size:20}")
+  @Value("${rag.reranking.llm.batch-size:20}")
   private int batchSize;
 
-  @Value("${rag.reranking.cross-encoder.enabled:true}")
+  @Value("${rag.reranking.llm.enabled:false}")
   private boolean enabled;
 
   /**
-   * Reranks candidates using cross-encoder scoring (query-passage semantic matching).
+   * Reranks candidates using LLM-based scoring (query-passage semantic matching).
    *
    * @param query the search query
    * @param candidates candidate chunks from RRF fusion
    * @param topK number of results to return
    * @return top K reranked chunks with scores
    */
-  @Timed(value = "rag.rerank.crossencoder", description = "Time for cross-encoder reranking")
+  @Timed(value = "rag.rerank.llm", description = "Time for LLM reranking")
   public List<ScoredChunk> rerank(String query, List<DocumentChunk> candidates, int topK) {
     if (!enabled) {
-      log.debug("Cross-encoder reranking disabled, returning candidates as-is");
+      log.debug("LLM reranking disabled, returning candidates as-is");
       return candidates.stream()
           .map(chunk -> new ScoredChunk(chunk, chunk.getRelevanceScore()))
           .limit(topK)
@@ -53,10 +56,7 @@ public class CrossEncoderReranker {
       return List.of();
     }
 
-    log.debug(
-        "Reranking {} candidates with cross-encoder (batch size: {})",
-        candidates.size(),
-        batchSize);
+    log.debug("Reranking {} candidates with LLM (batch size: {})", candidates.size(), batchSize);
 
     // Batch score passages to avoid context limits
     List<ScoredChunk> scoredChunks = new ArrayList<>();
@@ -91,12 +91,12 @@ public class CrossEncoderReranker {
 
     // Track metrics
     if (!scoredChunks.isEmpty()) {
-      meterRegistry.gauge("rag.rerank.top_score", scoredChunks.get(0).score());
+      meterRegistry.gauge("rag.rerank.llm.top_score", scoredChunks.get(0).score());
     }
-    meterRegistry.counter("rag.rerank.crossencoder.invocations").increment();
+    meterRegistry.counter("rag.rerank.llm.invocations").increment();
 
     log.debug(
-        "Cross-encoder reranking complete, top score: {}",
+        "LLM reranking complete, top score: {}",
         scoredChunks.isEmpty() ? "N/A" : String.format("%.3f", scoredChunks.get(0).score()));
 
     return scoredChunks.stream().limit(topK).toList();

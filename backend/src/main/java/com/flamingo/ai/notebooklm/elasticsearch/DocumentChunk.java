@@ -19,7 +19,7 @@ import lombok.NoArgsConstructor;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class DocumentChunk {
+public class DocumentChunk implements AbstractElasticsearchIndexService.ScoredDocument {
 
   private String id;
   private UUID documentId;
@@ -42,5 +42,5 @@ public class DocumentChunk {
   private String enrichedContent;
 
   // Relevance score from search results (set by search methods)
-  @Builder.Default private double relevanceScore = 0.0;
+  @Builder.Default private Double relevanceScore = 0.0;
 }

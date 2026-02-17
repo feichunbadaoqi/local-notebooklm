@@ -27,11 +27,10 @@ public class HybridSearchService {
   private final DocumentChunkIndexService documentChunkIndexService;
   private final EmbeddingService embeddingService;
   private final DiversityReranker diversityReranker;
-  private final CrossEncoderReranker crossEncoderReranker;
+  private final CrossEncoderRerankService crossEncoderRerankService;
+  private final LLMReranker llmReranker; // Optional - for A/B testing
   private final RagConfig ragConfig;
   private final MeterRegistry meterRegistry;
-
-  private static final int RRF_K = 60;
 
   /** Search result with intermediate retrieval steps for confidence calculation. */
   public record SearchResult(
@@ -79,56 +78,41 @@ public class HybridSearchService {
       return new SearchResult(List.of(), keywordOnly, keywordOnly);
     }
 
-    // Perform dual vector searches (Stage 2.2 - title and content embeddings)
-    // Fallback to legacy embedding field if new fields don't exist
+    // Perform hybrid search using Elasticsearch native RRF (BM25 + dual kNN in one query)
+    List<DocumentChunk> hybridResults;
     List<DocumentChunk> vectorResults;
+    List<DocumentChunk> keywordResults;
     try {
-      log.debug("Performing dual vector searches (title + content)...");
-      List<DocumentChunk> titleVectorResults =
-          documentChunkIndexService.vectorSearchByField(
-              sessionId, "titleEmbedding", queryEmbedding, topK * candidateMultiplier);
-      log.debug("Title vector search returned {} results", titleVectorResults.size());
-
-      List<DocumentChunk> contentVectorResults =
-          documentChunkIndexService.vectorSearchByField(
-              sessionId, "contentEmbedding", queryEmbedding, topK * candidateMultiplier);
-      log.debug("Content vector search returned {} results", contentVectorResults.size());
-
-      // Fuse title and content results with RRF
-      vectorResults =
-          applyRrf(titleVectorResults, contentVectorResults, topK * candidateMultiplier);
-      log.debug("Fused vector search (title+content) returned {} results", vectorResults.size());
+      log.debug("Performing native RRF hybrid search...");
+      hybridResults =
+          documentChunkIndexService.hybridSearchWithRRF(
+              sessionId, query, queryEmbedding, topK * candidateMultiplier);
+      vectorResults = hybridResults;
+      keywordResults = hybridResults;
+      log.debug("Native RRF hybrid search returned {} results", hybridResults.size());
     } catch (Exception e) {
       log.warn(
-          "Dual vector search failed ({}), falling back to legacy embedding field: {}",
+          "Native RRF hybrid search failed ({}), falling back to legacy search: {}",
           e.getClass().getSimpleName(),
           e.getMessage());
+      // Fall back to separate vector + keyword + application-side RRF
       vectorResults =
           documentChunkIndexService.vectorSearch(
               sessionId, queryEmbedding, topK * candidateMultiplier);
-      log.debug("Legacy vector search returned {} results", vectorResults.size());
+      keywordResults =
+          documentChunkIndexService.keywordSearch(sessionId, query, topK * candidateMultiplier);
+      hybridResults = applyRrf(vectorResults, keywordResults, topK * candidateMultiplier);
+      log.debug("Legacy hybrid search (fallback) returned {} results", hybridResults.size());
     }
 
-    log.debug("Performing keyword search...");
-    List<DocumentChunk> keywordResults =
-        documentChunkIndexService.keywordSearch(sessionId, query, topK * candidateMultiplier);
-    log.debug("Keyword search returned {} results", keywordResults.size());
-
-    // Apply RRF fusion to combine results
-    List<DocumentChunk> fusedResults =
-        applyRrf(vectorResults, keywordResults, topK * candidateMultiplier);
-    log.debug("RRF fusion returned {} results", fusedResults.size());
-
-    // Apply cross-encoder reranking (before diversity)
-    log.debug("Applying cross-encoder reranking to {} candidates...", fusedResults.size());
-    List<CrossEncoderReranker.ScoredChunk> rerankedScored =
-        crossEncoderReranker.rerank(query, fusedResults, topK * 2);
+    // Apply cross-encoder reranking
+    log.debug("Applying cross-encoder reranking to {} candidates...", hybridResults.size());
+    List<CrossEncoderRerankService.ScoredChunk> rerankedScored =
+        crossEncoderRerankService.rerank(query, hybridResults, topK * 2);
     List<DocumentChunk> rerankedResults =
         rerankedScored.stream()
-            .peek(
-                scored ->
-                    scored.chunk().setRelevanceScore(scored.score())) // Update score for diversity
-            .map(CrossEncoderReranker.ScoredChunk::chunk)
+            .peek(scored -> scored.chunk().setRelevanceScore(scored.score()))
+            .map(CrossEncoderRerankService.ScoredChunk::chunk)
             .toList();
     log.debug("Cross-encoder reranking returned {} results", rerankedResults.size());
 
@@ -149,18 +133,24 @@ public class HybridSearchService {
   /**
    * Applies Reciprocal Rank Fusion to combine results from multiple retrievers. RRF score = Σ 1/(k
    * + rank_i) for each retriever
+   *
+   * @deprecated This method is kept for fallback purposes only. Use {@link
+   *     DocumentChunkIndexService#hybridSearchWithRRF(UUID, String, List, int)} which performs RRF
+   *     fusion server-side in Elasticsearch for better performance.
    */
+  @Deprecated
   private List<DocumentChunk> applyRrf(
       List<DocumentChunk> vectorResults, List<DocumentChunk> keywordResults, int topK) {
 
     Map<String, Double> rrfScores = new HashMap<>();
     Map<String, DocumentChunk> chunkMap = new HashMap<>();
+    int rrfK = ragConfig.getRetrieval().getRrfK();
 
     // Score from vector search
     for (int i = 0; i < vectorResults.size(); i++) {
       DocumentChunk chunk = vectorResults.get(i);
       String id = chunk.getId();
-      double score = 1.0 / (RRF_K + i + 1);
+      double score = 1.0 / (rrfK + i + 1);
       rrfScores.merge(id, score, Double::sum);
       chunkMap.put(id, chunk);
     }
@@ -169,7 +159,7 @@ public class HybridSearchService {
     for (int i = 0; i < keywordResults.size(); i++) {
       DocumentChunk chunk = keywordResults.get(i);
       String id = chunk.getId();
-      double score = 1.0 / (RRF_K + i + 1);
+      double score = 1.0 / (rrfK + i + 1);
       rrfScores.merge(id, score, Double::sum);
       chunkMap.putIfAbsent(id, chunk);
     }

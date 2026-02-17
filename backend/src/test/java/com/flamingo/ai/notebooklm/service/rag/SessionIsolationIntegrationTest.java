@@ -6,12 +6,12 @@ import static org.mockito.Mockito.when;
 
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
 import co.elastic.clients.json.jackson.JacksonJsonpMapper;
-import co.elastic.clients.transport.rest_client.RestClientTransport;
+import co.elastic.clients.transport.rest5_client.Rest5ClientTransport;
+import co.elastic.clients.transport.rest5_client.low_level.Rest5Client;
 import com.flamingo.ai.notebooklm.config.RagConfig;
 import com.flamingo.ai.notebooklm.domain.enums.InteractionMode;
 import com.flamingo.ai.notebooklm.elasticsearch.DocumentChunk;
 import com.flamingo.ai.notebooklm.elasticsearch.DocumentChunkIndexService;
-import com.flamingo.ai.notebooklm.elasticsearch.ElasticsearchIndexService;
 import dev.langchain4j.model.embedding.EmbeddingModel;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -19,8 +19,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
-import org.apache.http.HttpHost;
-import org.elasticsearch.client.RestClient;
+import org.apache.hc.core5.http.HttpHost;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -47,7 +46,7 @@ class SessionIsolationIntegrationTest {
 
   @Container
   private static final ElasticsearchContainer ELASTICSEARCH_CONTAINER =
-      new ElasticsearchContainer("docker.elastic.co/elasticsearch/elasticsearch:8.12.2")
+      new ElasticsearchContainer("docker.elastic.co/elasticsearch/elasticsearch:9.0.0")
           .withEnv("xpack.security.enabled", "false")
           .withEnv("xpack.security.http.ssl.enabled", "false")
           .withStartupTimeout(Duration.ofMinutes(2));
@@ -55,7 +54,6 @@ class SessionIsolationIntegrationTest {
   @Mock private EmbeddingModel embeddingModel;
 
   private ElasticsearchClient elasticsearchClient;
-  private ElasticsearchIndexService elasticsearchIndexService;
   private DocumentChunkIndexService indexService;
   private EmbeddingService embeddingService;
   private DiversityReranker diversityReranker;
@@ -70,49 +68,44 @@ class SessionIsolationIntegrationTest {
 
   @BeforeEach
   void setUp() throws Exception {
-    RestClient restClient =
-        RestClient.builder(
+    Rest5Client rest5Client =
+        Rest5Client.builder(
                 new HttpHost(
+                    "http",
                     ELASTICSEARCH_CONTAINER.getHost(),
-                    ELASTICSEARCH_CONTAINER.getMappedPort(9200),
-                    "http"))
+                    ELASTICSEARCH_CONTAINER.getMappedPort(9200)))
             .build();
-    RestClientTransport transport = new RestClientTransport(restClient, new JacksonJsonpMapper());
+    Rest5ClientTransport transport =
+        new Rest5ClientTransport(rest5Client, new JacksonJsonpMapper());
     elasticsearchClient = new ElasticsearchClient(transport);
 
     meterRegistry = new SimpleMeterRegistry();
-    elasticsearchIndexService =
-        new ElasticsearchIndexService(
+    indexService =
+        new DocumentChunkIndexService(
             elasticsearchClient, meterRegistry, "notebooklm-chunks", 3072);
-    indexService = new DocumentChunkIndexService(elasticsearchIndexService);
     embeddingService = new EmbeddingService(embeddingModel, meterRegistry);
 
     RagConfig ragConfig = new RagConfig();
     ragConfig.setRetrieval(new RagConfig.Retrieval());
     ragConfig.setDiversity(new RagConfig.Diversity());
+    RagConfig.Reranking reranking = new RagConfig.Reranking();
+    reranking.getCrossEncoder().setEnabled(false);
+    ragConfig.setReranking(reranking);
 
     diversityReranker = new DiversityReranker(ragConfig, meterRegistry);
 
-    // Mock cross-encoder reranker to return candidates as-is
-    CrossEncoderReranker crossEncoderReranker =
-        new CrossEncoderReranker(null, meterRegistry) {
-          @Override
-          public List<CrossEncoderReranker.ScoredChunk> rerank(
-              String query, List<DocumentChunk> candidates, int topK) {
-            return candidates.stream()
-                .map(
-                    chunk -> new CrossEncoderReranker.ScoredChunk(chunk, chunk.getRelevanceScore()))
-                .limit(topK)
-                .toList();
-          }
-        };
+    // LLMReranker with enabled=false (Java default) passes through candidates without LLM calls
+    LLMReranker llmReranker = new LLMReranker(null, meterRegistry);
+    CrossEncoderRerankService crossEncoderRerankService =
+        new CrossEncoderRerankService(elasticsearchClient, meterRegistry, ragConfig);
 
     hybridSearchService =
         new HybridSearchService(
             indexService,
             embeddingService,
             diversityReranker,
-            crossEncoderReranker,
+            crossEncoderRerankService,
+            llmReranker,
             ragConfig,
             meterRegistry);
 

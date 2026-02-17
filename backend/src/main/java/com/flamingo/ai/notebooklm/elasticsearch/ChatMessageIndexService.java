@@ -2,21 +2,12 @@ package com.flamingo.ai.notebooklm.elasticsearch;
 
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
 import co.elastic.clients.elasticsearch._types.mapping.DenseVectorProperty;
+import co.elastic.clients.elasticsearch._types.mapping.DenseVectorSimilarity;
 import co.elastic.clients.elasticsearch._types.mapping.Property;
 import co.elastic.clients.elasticsearch._types.mapping.TextProperty;
-import co.elastic.clients.elasticsearch.core.BulkRequest;
-import co.elastic.clients.elasticsearch.core.BulkResponse;
-import co.elastic.clients.elasticsearch.core.DeleteByQueryRequest;
+import co.elastic.clients.elasticsearch._types.query_dsl.Query;
 import co.elastic.clients.elasticsearch.core.SearchRequest;
-import co.elastic.clients.elasticsearch.core.SearchResponse;
-import co.elastic.clients.elasticsearch.core.search.Hit;
-import co.elastic.clients.elasticsearch.indices.CreateIndexRequest;
-import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
-import io.micrometer.core.annotation.Timed;
 import io.micrometer.core.instrument.MeterRegistry;
-import jakarta.annotation.PostConstruct;
-import java.io.IOException;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -33,10 +24,8 @@ import org.springframework.stereotype.Service;
  */
 @Service
 @Slf4j
-public class ChatMessageIndexService {
-
-  private final ElasticsearchClient elasticsearchClient;
-  private final MeterRegistry meterRegistry;
+public class ChatMessageIndexService
+    extends AbstractElasticsearchIndexService<ChatMessageDocument> {
 
   @Value("${app.elasticsearch.chat-message-index-name:notebooklm-chat-messages}")
   private String indexName;
@@ -44,31 +33,24 @@ public class ChatMessageIndexService {
   @Value("${app.elasticsearch.vector-dimensions:3072}")
   private int vectorDimensions;
 
+  @org.springframework.beans.factory.annotation.Autowired
   public ChatMessageIndexService(
       ElasticsearchClient elasticsearchClient, MeterRegistry meterRegistry) {
-    this.elasticsearchClient = elasticsearchClient;
-    this.meterRegistry = meterRegistry;
+    super(elasticsearchClient, meterRegistry);
   }
 
-  @PostConstruct
-  public void initIndex() {
-    try {
-      var indices = elasticsearchClient.indices();
-      if (indices == null) {
-        log.warn("Elasticsearch client not available, skipping chat message index initialization");
-        return;
-      }
-      boolean exists = indices.exists(e -> e.index(indexName)).value();
-      if (!exists) {
-        createIndex();
-        log.info("Created Elasticsearch chat message index: {}", indexName);
-      }
-    } catch (Exception e) {
-      log.warn("Could not check/create Elasticsearch chat message index: {}", e.getMessage());
-    }
+  @Override
+  public String getIndexName() {
+    return indexName;
   }
 
-  private void createIndex() throws IOException {
+  @Override
+  protected int getVectorDimensions() {
+    return vectorDimensions;
+  }
+
+  @Override
+  protected Map<String, Property> defineIndexProperties() {
     Map<String, Property> properties = new HashMap<>();
     properties.put("sessionId", Property.of(p -> p.keyword(k -> k)));
     properties.put("role", Property.of(p -> p.keyword(k -> k)));
@@ -81,209 +63,15 @@ public class ChatMessageIndexService {
             p ->
                 p.denseVector(
                     DenseVectorProperty.of(
-                        d -> d.dims(vectorDimensions).index(true).similarity("cosine")))));
-
-    CreateIndexRequest createIndexRequest =
-        CreateIndexRequest.of(c -> c.index(indexName).mappings(m -> m.properties(properties)));
-
-    elasticsearchClient.indices().create(createIndexRequest);
+                        d ->
+                            d.dims(vectorDimensions)
+                                .index(true)
+                                .similarity(DenseVectorSimilarity.Cosine)))));
+    return properties;
   }
 
-  /**
-   * Indexes chat messages to Elasticsearch.
-   *
-   * @param messages list of chat messages to index
-   */
-  @Timed(value = "chat_message.index", description = "Time to index chat messages")
-  @CircuitBreaker(name = "elasticsearch", fallbackMethod = "indexMessagesFallback")
-  public void indexMessages(List<ChatMessageDocument> messages) {
-    if (messages.isEmpty()) {
-      return;
-    }
-
-    try {
-      BulkRequest.Builder bulkBuilder = new BulkRequest.Builder();
-      for (ChatMessageDocument message : messages) {
-        bulkBuilder.operations(
-            op ->
-                op.index(
-                    idx ->
-                        idx.index(indexName)
-                            .id(message.getId())
-                            .document(convertToElasticsearchDoc(message))));
-      }
-
-      BulkResponse response = elasticsearchClient.bulk(bulkBuilder.build());
-      if (response.errors()) {
-        log.warn("Some chat messages failed to index: {}", response.items());
-      }
-
-      meterRegistry.counter("chat_message.indexed").increment(messages.size());
-      log.debug("Indexed {} chat messages", messages.size());
-    } catch (Exception e) {
-      log.error("Failed to index chat messages: {}", e.getMessage(), e);
-      throw new RuntimeException("Failed to index chat messages", e);
-    }
-  }
-
-  @SuppressWarnings("unused")
-  private void indexMessagesFallback(List<ChatMessageDocument> messages, Throwable t) {
-    log.warn("Chat message indexing fallback triggered: {}", t.getMessage());
-    meterRegistry.counter("chat_message.index.fallback").increment();
-  }
-
-  /**
-   * Performs vector search on chat messages.
-   *
-   * @param sessionId the session ID to filter by
-   * @param queryEmbedding the query embedding vector
-   * @param topK number of results to return
-   * @return list of matching chat messages
-   */
-  @Timed(value = "chat_message.vector_search", description = "Time to vector search chat messages")
-  @CircuitBreaker(name = "elasticsearch", fallbackMethod = "vectorSearchFallback")
-  public List<ChatMessageDocument> vectorSearch(
-      UUID sessionId, List<Float> queryEmbedding, int topK) {
-    try {
-      SearchRequest searchRequest =
-          SearchRequest.of(
-              s ->
-                  s.index(indexName)
-                      .knn(
-                          k ->
-                              k.field("embedding")
-                                  .queryVector(queryEmbedding)
-                                  .k(topK)
-                                  .numCandidates(topK * 2)
-                                  .filter(
-                                      f ->
-                                          f.term(
-                                              t ->
-                                                  t.field("sessionId")
-                                                      .value(sessionId.toString()))))
-                      .size(topK));
-
-      SearchResponse<Map> response = elasticsearchClient.search(searchRequest, Map.class);
-      List<ChatMessageDocument> results = new ArrayList<>();
-      for (Hit<Map> hit : response.hits().hits()) {
-        ChatMessageDocument doc = convertFromElasticsearchDoc(hit.source());
-        doc.setRelevanceScore(hit.score() != null ? hit.score() : 0.0);
-        results.add(doc);
-      }
-
-      meterRegistry.counter("chat_message.vector_search").increment();
-      return results;
-    } catch (Exception e) {
-      log.error("Vector search failed for chat messages: {}", e.getMessage(), e);
-      throw new RuntimeException("Vector search failed", e);
-    }
-  }
-
-  @SuppressWarnings("unused")
-  private List<ChatMessageDocument> vectorSearchFallback(
-      UUID sessionId, List<Float> queryEmbedding, int topK, Throwable t) {
-    log.warn("Chat message vector search fallback triggered: {}", t.getMessage());
-    meterRegistry.counter("chat_message.vector_search.fallback").increment();
-    return List.of();
-  }
-
-  /**
-   * Performs keyword search on chat messages.
-   *
-   * @param sessionId the session ID to filter by
-   * @param query the search query
-   * @param topK number of results to return
-   * @return list of matching chat messages
-   */
-  @Timed(
-      value = "chat_message.keyword_search",
-      description = "Time to keyword search chat messages")
-  @CircuitBreaker(name = "elasticsearch", fallbackMethod = "keywordSearchFallback")
-  public List<ChatMessageDocument> keywordSearch(UUID sessionId, String query, int topK) {
-    try {
-      SearchRequest searchRequest =
-          SearchRequest.of(
-              s ->
-                  s.index(indexName)
-                      .size(topK)
-                      .query(
-                          q ->
-                              q.bool(
-                                  b ->
-                                      b.must(
-                                              m ->
-                                                  m.term(
-                                                      t ->
-                                                          t.field("sessionId")
-                                                              .value(sessionId.toString())))
-                                          .must(
-                                              m ->
-                                                  m.match(
-                                                      mt -> mt.field("content").query(query))))));
-
-      SearchResponse<Map> response = elasticsearchClient.search(searchRequest, Map.class);
-      List<ChatMessageDocument> results = new ArrayList<>();
-      for (Hit<Map> hit : response.hits().hits()) {
-        ChatMessageDocument doc = convertFromElasticsearchDoc(hit.source());
-        doc.setRelevanceScore(hit.score() != null ? hit.score() : 0.0);
-        results.add(doc);
-      }
-
-      meterRegistry.counter("chat_message.keyword_search").increment();
-      return results;
-    } catch (Exception e) {
-      log.error("Keyword search failed for chat messages: {}", e.getMessage(), e);
-      throw new RuntimeException("Keyword search failed", e);
-    }
-  }
-
-  @SuppressWarnings("unused")
-  private List<ChatMessageDocument> keywordSearchFallback(
-      UUID sessionId, String query, int topK, Throwable t) {
-    log.warn("Chat message keyword search fallback triggered: {}", t.getMessage());
-    meterRegistry.counter("chat_message.keyword_search.fallback").increment();
-    return List.of();
-  }
-
-  /**
-   * Deletes all chat messages for a session.
-   *
-   * @param sessionId the session ID
-   */
-  @Timed(
-      value = "chat_message.delete_by_session",
-      description = "Time to delete chat messages by session")
-  public void deleteBySessionId(UUID sessionId) {
-    try {
-      DeleteByQueryRequest deleteRequest =
-          DeleteByQueryRequest.of(
-              d ->
-                  d.index(indexName)
-                      .query(q -> q.term(t -> t.field("sessionId").value(sessionId.toString()))));
-
-      elasticsearchClient.deleteByQuery(deleteRequest);
-      log.info("Deleted chat messages for session: {}", sessionId);
-      meterRegistry.counter("chat_message.deleted_by_session").increment();
-    } catch (Exception e) {
-      log.error("Failed to delete chat messages for session {}: {}", sessionId, e.getMessage(), e);
-      throw new RuntimeException("Failed to delete chat messages", e);
-    }
-  }
-
-  /** Refreshes the index. */
-  public void refresh() {
-    try {
-      elasticsearchClient.indices().refresh(r -> r.index(indexName));
-    } catch (Exception e) {
-      log.warn("Failed to refresh chat message index: {}", e.getMessage());
-    }
-  }
-
-  public String getIndexName() {
-    return indexName;
-  }
-
-  private Map<String, Object> convertToElasticsearchDoc(ChatMessageDocument message) {
+  @Override
+  protected Map<String, Object> convertToDocument(ChatMessageDocument message) {
     Map<String, Object> doc = new HashMap<>();
     doc.put("sessionId", message.getSessionId().toString());
     doc.put("role", message.getRole());
@@ -300,8 +88,9 @@ public class ChatMessageIndexService {
     return doc;
   }
 
+  @Override
   @SuppressWarnings("unchecked")
-  private ChatMessageDocument convertFromElasticsearchDoc(Map<String, Object> source) {
+  protected ChatMessageDocument convertFromDocument(Map<String, Object> source) {
     return ChatMessageDocument.builder()
         .id((String) source.get("id"))
         .sessionId(UUID.fromString((String) source.get("sessionId")))
@@ -315,5 +104,126 @@ public class ChatMessageIndexService {
                 ? ((Number) source.get("tokenCount")).intValue()
                 : null)
         .build();
+  }
+
+  @Override
+  protected String getDocumentId(ChatMessageDocument entity) {
+    return entity.getId();
+  }
+
+  @Override
+  protected SearchRequest buildVectorSearchRequest(
+      Map<String, Object> filterCriteria,
+      List<Float> queryEmbedding,
+      int topK,
+      String embeddingField) {
+    UUID sessionId = (UUID) filterCriteria.get("sessionId");
+    if (sessionId == null) {
+      throw new IllegalArgumentException("sessionId filter is required for vector search");
+    }
+
+    return SearchRequest.of(
+        s ->
+            s.index(indexName)
+                .knn(
+                    k ->
+                        k.field(embeddingField)
+                            .queryVector(queryEmbedding)
+                            .k(topK)
+                            .numCandidates(topK * 2)
+                            .filter(
+                                f -> f.term(t -> t.field("sessionId").value(sessionId.toString()))))
+                .size(topK));
+  }
+
+  @Override
+  protected SearchRequest buildKeywordSearchRequest(
+      Map<String, Object> filterCriteria, String query, int topK) {
+    UUID sessionId = (UUID) filterCriteria.get("sessionId");
+    if (sessionId == null) {
+      throw new IllegalArgumentException("sessionId filter is required for keyword search");
+    }
+
+    return SearchRequest.of(
+        s ->
+            s.index(indexName)
+                .size(topK)
+                .query(
+                    q ->
+                        q.bool(
+                            b ->
+                                b.must(
+                                        m ->
+                                            m.term(
+                                                t ->
+                                                    t.field("sessionId")
+                                                        .value(sessionId.toString())))
+                                    .must(m -> m.match(mt -> mt.field("content").query(query))))));
+  }
+
+  @Override
+  protected Query buildDeleteQuery(Map<String, Object> criteria) {
+    if (criteria.containsKey("sessionId")) {
+      UUID sessionId = (UUID) criteria.get("sessionId");
+      return Query.of(q -> q.term(t -> t.field("sessionId").value(sessionId.toString())));
+    } else {
+      throw new IllegalArgumentException("deleteBy requires sessionId in criteria");
+    }
+  }
+
+  @Override
+  protected String getMetricPrefix() {
+    return "chat_message";
+  }
+
+  // Convenience methods for backward compatibility
+
+  /**
+   * Indexes chat messages to Elasticsearch (convenience method).
+   *
+   * @param messages list of chat messages to index
+   */
+  public void indexMessages(List<ChatMessageDocument> messages) {
+    indexDocuments(messages);
+  }
+
+  /**
+   * Performs vector search on chat messages (convenience method).
+   *
+   * @param sessionId the session ID to filter by
+   * @param queryEmbedding the query embedding vector
+   * @param topK number of results to return
+   * @return list of matching chat messages
+   */
+  public List<ChatMessageDocument> vectorSearch(
+      UUID sessionId, List<Float> queryEmbedding, int topK) {
+    Map<String, Object> criteria = new HashMap<>();
+    criteria.put("sessionId", sessionId);
+    return vectorSearch(criteria, queryEmbedding, topK);
+  }
+
+  /**
+   * Performs keyword search on chat messages (convenience method).
+   *
+   * @param sessionId the session ID to filter by
+   * @param query the search query
+   * @param topK number of results to return
+   * @return list of matching chat messages
+   */
+  public List<ChatMessageDocument> keywordSearch(UUID sessionId, String query, int topK) {
+    Map<String, Object> criteria = new HashMap<>();
+    criteria.put("sessionId", sessionId);
+    return keywordSearch(criteria, query, topK);
+  }
+
+  /**
+   * Deletes all chat messages for a session (convenience method).
+   *
+   * @param sessionId the session ID
+   */
+  public void deleteBySessionId(UUID sessionId) {
+    Map<String, Object> criteria = new HashMap<>();
+    criteria.put("sessionId", sessionId);
+    deleteBy(criteria);
   }
 }

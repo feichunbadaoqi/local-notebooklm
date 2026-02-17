@@ -17,7 +17,7 @@ import lombok.NoArgsConstructor;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class ChatMessageDocument {
+public class ChatMessageDocument implements AbstractElasticsearchIndexService.ScoredDocument {
 
   /** Message ID (from ChatMessage entity). */
   private String id;
@@ -41,5 +41,5 @@ public class ChatMessageDocument {
   private Integer tokenCount;
 
   /** Relevance score from search results (set by search methods). */
-  @Builder.Default private double relevanceScore = 0.0;
+  @Builder.Default private Double relevanceScore = 0.0;
 }

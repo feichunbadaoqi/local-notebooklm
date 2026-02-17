@@ -32,7 +32,8 @@ class HybridSearchServiceTest {
   @Mock private DocumentChunkIndexService documentChunkIndexService;
   @Mock private EmbeddingService embeddingService;
   @Mock private DiversityReranker diversityReranker;
-  @Mock private CrossEncoderReranker crossEncoderReranker;
+  @Mock private CrossEncoderRerankService crossEncoderRerankService;
+  @Mock private LLMReranker llmReranker;
   @Mock private MeterRegistry meterRegistry;
   @Mock private Counter counter;
   @Mock private Timer timer;
@@ -54,7 +55,8 @@ class HybridSearchServiceTest {
             documentChunkIndexService,
             embeddingService,
             diversityReranker,
-            crossEncoderReranker,
+            crossEncoderRerankService,
+            llmReranker,
             ragConfig,
             meterRegistry);
 
@@ -65,19 +67,12 @@ class HybridSearchServiceTest {
     lenient().when(meterRegistry.timer(anyString())).thenReturn(timer);
   }
 
-  private void setupTimerMock() {
-    try (var mockedTimer = org.mockito.MockedStatic.class.cast(null)) {
-      // Timer.start is a static method, we'll mock the instance method instead
-    }
-  }
-
   @Nested
   @DisplayName("search")
   class SearchTests {
 
     @BeforeEach
     void setUpSearch() {
-      // Mock Timer.start static method
       try (var timerMock =
           org.mockito.Mockito.mockStatic(Timer.class, org.mockito.Mockito.CALLS_REAL_METHODS)) {
         timerMock.when(() -> Timer.start(meterRegistry)).thenReturn(timerSample);
@@ -85,35 +80,27 @@ class HybridSearchServiceTest {
     }
 
     @Test
-    @DisplayName("should combine vector and keyword search results using RRF")
-    void shouldCombineVectorAndKeywordSearchUsingRrf() {
+    @DisplayName("should use native RRF hybrid search via hybridSearchWithRRF")
+    void shouldUseNativeRrfHybridSearch() {
       try (var timerMock =
           org.mockito.Mockito.mockStatic(Timer.class, org.mockito.Mockito.CALLS_REAL_METHODS)) {
         timerMock.when(() -> Timer.start(meterRegistry)).thenReturn(timerSample);
 
         List<Float> embedding = List.of(0.1f, 0.2f, 0.3f);
-        DocumentChunk vectorChunk1 = createChunk("v1", "Vector result 1");
-        DocumentChunk vectorChunk2 = createChunk("v2", "Vector result 2");
-        DocumentChunk keywordChunk1 = createChunk("k1", "Keyword result 1");
-        DocumentChunk keywordChunk2 = createChunk("v1", "Vector result 1"); // Same as vector
+        DocumentChunk chunk1 = createChunk("c1", "Hybrid result 1");
+        DocumentChunk chunk2 = createChunk("c2", "Hybrid result 2");
+        DocumentChunk chunk3 = createChunk("c3", "Hybrid result 3");
 
         when(embeddingService.embedQuery(anyString())).thenReturn(embedding);
-        // Mock dual vector searches (Stage 2.2 - title and content embeddings)
-        when(documentChunkIndexService.vectorSearchByField(
-                eq(sessionId), eq("titleEmbedding"), eq(embedding), anyInt()))
-            .thenReturn(List.of(vectorChunk1));
-        when(documentChunkIndexService.vectorSearchByField(
-                eq(sessionId), eq("contentEmbedding"), eq(embedding), anyInt()))
-            .thenReturn(List.of(vectorChunk2));
-        when(documentChunkIndexService.keywordSearch(eq(sessionId), anyString(), anyInt()))
-            .thenReturn(List.of(keywordChunk1, keywordChunk2));
-        // Mock cross-encoder to return chunks as ScoredChunks
-        when(crossEncoderReranker.rerank(anyString(), any(), anyInt()))
+        when(documentChunkIndexService.hybridSearchWithRRF(
+                eq(sessionId), anyString(), eq(embedding), anyInt()))
+            .thenReturn(List.of(chunk1, chunk2, chunk3));
+        when(crossEncoderRerankService.rerank(anyString(), any(), anyInt()))
             .thenAnswer(
                 invocation -> {
                   List<DocumentChunk> chunks = invocation.getArgument(1);
                   return chunks.stream()
-                      .map(c -> new CrossEncoderReranker.ScoredChunk(c, 0.8))
+                      .map(c -> new CrossEncoderRerankService.ScoredChunk(c, 0.8))
                       .toList();
                 });
         when(diversityReranker.rerank(any(), anyInt()))
@@ -125,10 +112,48 @@ class HybridSearchServiceTest {
         assertThat(results).isNotEmpty();
         verify(embeddingService).embedQuery("test query");
         verify(documentChunkIndexService)
-            .vectorSearchByField(eq(sessionId), eq("titleEmbedding"), eq(embedding), anyInt());
-        verify(documentChunkIndexService)
-            .vectorSearchByField(eq(sessionId), eq("contentEmbedding"), eq(embedding), anyInt());
-        verify(documentChunkIndexService).keywordSearch(eq(sessionId), eq("test query"), anyInt());
+            .hybridSearchWithRRF(eq(sessionId), eq("test query"), eq(embedding), anyInt());
+        verify(crossEncoderRerankService).rerank(anyString(), any(), anyInt());
+        verify(diversityReranker).rerank(any(), anyInt());
+      }
+    }
+
+    @Test
+    @DisplayName("should fall back to legacy search when native RRF fails")
+    void shouldFallBackToLegacySearchWhenNativeRrfFails() {
+      try (var timerMock =
+          org.mockito.Mockito.mockStatic(Timer.class, org.mockito.Mockito.CALLS_REAL_METHODS)) {
+        timerMock.when(() -> Timer.start(meterRegistry)).thenReturn(timerSample);
+
+        List<Float> embedding = List.of(0.1f, 0.2f, 0.3f);
+        DocumentChunk vectorChunk = createChunk("v1", "Vector result");
+        DocumentChunk keywordChunk = createChunk("k1", "Keyword result");
+
+        when(embeddingService.embedQuery(anyString())).thenReturn(embedding);
+        when(documentChunkIndexService.hybridSearchWithRRF(any(), anyString(), any(), anyInt()))
+            .thenThrow(new RuntimeException("Elasticsearch RRF not available"));
+        when(documentChunkIndexService.vectorSearch(eq(sessionId), eq(embedding), anyInt()))
+            .thenReturn(List.of(vectorChunk));
+        when(documentChunkIndexService.keywordSearch(eq(sessionId), anyString(), anyInt()))
+            .thenReturn(List.of(keywordChunk));
+        when(crossEncoderRerankService.rerank(anyString(), any(), anyInt()))
+            .thenAnswer(
+                invocation -> {
+                  List<DocumentChunk> chunks = invocation.getArgument(1);
+                  return chunks.stream()
+                      .map(c -> new CrossEncoderRerankService.ScoredChunk(c, 0.7))
+                      .toList();
+                });
+        when(diversityReranker.rerank(any(), anyInt()))
+            .thenAnswer(invocation -> invocation.getArgument(0));
+
+        List<DocumentChunk> results =
+            hybridSearchService.search(sessionId, "test query", InteractionMode.EXPLORING);
+
+        // Should fall back to legacy vector + keyword search
+        assertThat(results).isNotEmpty();
+        verify(documentChunkIndexService).vectorSearch(eq(sessionId), eq(embedding), anyInt());
+        verify(documentChunkIndexService).keywordSearch(eq(sessionId), anyString(), anyInt());
       }
     }
 
@@ -142,17 +167,10 @@ class HybridSearchServiceTest {
         List<Float> embedding = List.of(0.1f, 0.2f, 0.3f);
 
         when(embeddingService.embedQuery(anyString())).thenReturn(embedding);
-        // Mock dual vector searches to return empty
-        when(documentChunkIndexService.vectorSearchByField(
-                eq(sessionId), eq("titleEmbedding"), any(), anyInt()))
+        when(documentChunkIndexService.hybridSearchWithRRF(
+                eq(sessionId), anyString(), any(), anyInt()))
             .thenReturn(List.of());
-        when(documentChunkIndexService.vectorSearchByField(
-                eq(sessionId), eq("contentEmbedding"), any(), anyInt()))
-            .thenReturn(List.of());
-        when(documentChunkIndexService.keywordSearch(eq(sessionId), anyString(), anyInt()))
-            .thenReturn(List.of());
-        // Mock cross-encoder to return empty list
-        when(crossEncoderReranker.rerank(anyString(), any(), anyInt())).thenReturn(List.of());
+        when(crossEncoderRerankService.rerank(anyString(), any(), anyInt())).thenReturn(List.of());
         when(diversityReranker.rerank(any(), anyInt())).thenReturn(List.of());
 
         List<DocumentChunk> results =
@@ -163,46 +181,24 @@ class HybridSearchServiceTest {
     }
 
     @Test
-    @DisplayName("should deduplicate results from both searches")
-    void shouldDeduplicateResults() {
+    @DisplayName("should fall back to keyword-only when embedding fails")
+    void shouldFallBackToKeywordOnlyWhenEmbeddingFails() {
       try (var timerMock =
           org.mockito.Mockito.mockStatic(Timer.class, org.mockito.Mockito.CALLS_REAL_METHODS)) {
         timerMock.when(() -> Timer.start(meterRegistry)).thenReturn(timerSample);
 
-        List<Float> embedding = List.of(0.1f, 0.2f, 0.3f);
-        String sharedId = "shared-chunk";
+        DocumentChunk keywordChunk = createChunk("k1", "Keyword result");
 
-        DocumentChunk vectorChunk = createChunk(sharedId, "Shared content");
-        DocumentChunk keywordChunk = createChunk(sharedId, "Shared content");
-
-        when(embeddingService.embedQuery(anyString())).thenReturn(embedding);
-        // Mock dual vector searches
-        when(documentChunkIndexService.vectorSearchByField(
-                eq(sessionId), eq("titleEmbedding"), any(), anyInt()))
-            .thenReturn(List.of(vectorChunk));
-        when(documentChunkIndexService.vectorSearchByField(
-                eq(sessionId), eq("contentEmbedding"), any(), anyInt()))
-            .thenReturn(List.of());
+        // Embedding fails (returns empty)
+        when(embeddingService.embedQuery(anyString())).thenReturn(List.of());
         when(documentChunkIndexService.keywordSearch(eq(sessionId), anyString(), anyInt()))
             .thenReturn(List.of(keywordChunk));
-        // Mock cross-encoder to return chunks as ScoredChunks
-        when(crossEncoderReranker.rerank(anyString(), any(), anyInt()))
-            .thenAnswer(
-                invocation -> {
-                  List<DocumentChunk> chunks = invocation.getArgument(1);
-                  return chunks.stream()
-                      .map(c -> new CrossEncoderReranker.ScoredChunk(c, 0.8))
-                      .toList();
-                });
-        when(diversityReranker.rerank(any(), anyInt()))
-            .thenAnswer(invocation -> invocation.getArgument(0));
 
         List<DocumentChunk> results =
             hybridSearchService.search(sessionId, "query", InteractionMode.EXPLORING);
 
-        // Should only have one instance of the shared chunk (deduplicated)
-        long sharedCount = results.stream().filter(c -> c.getId().equals(sharedId)).count();
-        assertThat(sharedCount).isLessThanOrEqualTo(1);
+        assertThat(results).containsExactly(keywordChunk);
+        verify(documentChunkIndexService).keywordSearch(eq(sessionId), anyString(), anyInt());
       }
     }
   }

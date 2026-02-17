@@ -19,6 +19,7 @@ public class RagConfig {
   private Metadata metadata = new Metadata();
   private Diversity diversity = new Diversity();
   private QueryReformulation queryReformulation = new QueryReformulation();
+  private Reranking reranking = new Reranking();
 
   @Getter
   @Setter
@@ -78,5 +79,26 @@ public class RagConfig {
     private int historyWindow = 5;
     private Integer candidatePoolMultiplier = 4;
     private int maxQueryLength = 500;
+  }
+
+  @Getter
+  @Setter
+  public static class Reranking {
+    private CrossEncoder crossEncoder = new CrossEncoder();
+    private Llm llm = new Llm();
+
+    @Getter
+    @Setter
+    public static class CrossEncoder {
+      private boolean enabled = true;
+      private String modelId = "elastic-rerank";
+    }
+
+    @Getter
+    @Setter
+    public static class Llm {
+      private boolean enabled = false;
+      private int batchSize = 20;
+    }
   }
 }

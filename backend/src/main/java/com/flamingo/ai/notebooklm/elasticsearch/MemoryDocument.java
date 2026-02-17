@@ -17,7 +17,7 @@ import lombok.NoArgsConstructor;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class MemoryDocument {
+public class MemoryDocument implements AbstractElasticsearchIndexService.ScoredDocument {
 
   /** Unique identifier (matches Memory.id) */
   private String id;
@@ -41,5 +41,5 @@ public class MemoryDocument {
   private Long timestamp;
 
   /** Relevance score from search (set by hybrid search service) */
-  @Builder.Default private double relevanceScore = 0.0;
+  @Builder.Default private Double relevanceScore = 0.0;
 }

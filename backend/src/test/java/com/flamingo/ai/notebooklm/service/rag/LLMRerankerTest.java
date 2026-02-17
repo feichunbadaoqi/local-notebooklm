@@ -21,20 +21,20 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
 @ExtendWith(MockitoExtension.class)
-@DisplayName("CrossEncoderReranker Tests")
-class CrossEncoderRerankerTest {
+@DisplayName("LLMReranker Tests")
+class LLMRerankerTest {
 
   @Mock private CrossEncoderRerankerAgent agent;
   @Mock private MeterRegistry meterRegistry;
   @Mock private Counter counter;
 
-  private CrossEncoderReranker reranker;
+  private LLMReranker reranker;
 
   @BeforeEach
   void setUp() {
     lenient().when(meterRegistry.counter(anyString())).thenReturn(counter);
 
-    reranker = new CrossEncoderReranker(agent, meterRegistry);
+    reranker = new LLMReranker(agent, meterRegistry);
     ReflectionTestUtils.setField(reranker, "batchSize", 20);
     ReflectionTestUtils.setField(reranker, "enabled", true);
   }
@@ -52,7 +52,7 @@ class CrossEncoderRerankerTest {
     // Mock LLM to return scores in order: 0.3, 0.9, 0.6
     when(agent.scorePassages(anyString(), anyString())).thenReturn("0.3,0.9,0.6");
 
-    List<CrossEncoderReranker.ScoredChunk> results = reranker.rerank(query, candidates, 3);
+    List<LLMReranker.ScoredChunk> results = reranker.rerank(query, candidates, 3);
 
     assertThat(results).hasSize(3);
     // Should be sorted by score descending: 0.9, 0.6, 0.3
@@ -70,7 +70,7 @@ class CrossEncoderRerankerTest {
     when(agent.scorePassages(anyString(), anyString()))
         .thenReturn("0.9,0.8,0.7,0.6,0.5,0.4,0.3,0.2,0.1,0.05");
 
-    List<CrossEncoderReranker.ScoredChunk> results = reranker.rerank(query, candidates, 5);
+    List<LLMReranker.ScoredChunk> results = reranker.rerank(query, candidates, 5);
 
     assertThat(results).hasSize(5);
     assertThat(results.get(0).score()).isEqualTo(0.9);
@@ -83,7 +83,7 @@ class CrossEncoderRerankerTest {
     List<DocumentChunk> candidates = new ArrayList<>();
     String query = "test query";
 
-    List<CrossEncoderReranker.ScoredChunk> results = reranker.rerank(query, candidates, 5);
+    List<LLMReranker.ScoredChunk> results = reranker.rerank(query, candidates, 5);
 
     assertThat(results).isEmpty();
   }
@@ -102,7 +102,7 @@ class CrossEncoderRerankerTest {
         .thenReturn("0.4,0.3,0.2,0.1,0.05") // Batch 2
         .thenReturn("0.95,0.85"); // Batch 3
 
-    List<CrossEncoderReranker.ScoredChunk> results = reranker.rerank(query, candidates, 12);
+    List<LLMReranker.ScoredChunk> results = reranker.rerank(query, candidates, 12);
 
     assertThat(results).hasSize(12);
     // Should be sorted, so highest scores first
@@ -119,7 +119,7 @@ class CrossEncoderRerankerTest {
     // LLM returns invalid format
     when(agent.scorePassages(anyString(), anyString())).thenReturn("invalid response");
 
-    List<CrossEncoderReranker.ScoredChunk> results = reranker.rerank(query, candidates, 3);
+    List<LLMReranker.ScoredChunk> results = reranker.rerank(query, candidates, 3);
 
     // Should default to 0.5 for unparseable scores
     assertThat(results).hasSize(3);
@@ -135,7 +135,7 @@ class CrossEncoderRerankerTest {
     // LLM returns out-of-range scores
     when(agent.scorePassages(anyString(), anyString())).thenReturn("1.5,-0.3,0.7");
 
-    List<CrossEncoderReranker.ScoredChunk> results = reranker.rerank(query, candidates, 3);
+    List<LLMReranker.ScoredChunk> results = reranker.rerank(query, candidates, 3);
 
     assertThat(results.get(0).score()).isLessThanOrEqualTo(1.0);
     assertThat(results.get(0).score()).isGreaterThanOrEqualTo(0.0);
@@ -152,7 +152,7 @@ class CrossEncoderRerankerTest {
     // LLM returns only 3 scores for 5 candidates
     when(agent.scorePassages(anyString(), anyString())).thenReturn("0.9,0.8,0.7");
 
-    List<CrossEncoderReranker.ScoredChunk> results = reranker.rerank(query, candidates, 5);
+    List<LLMReranker.ScoredChunk> results = reranker.rerank(query, candidates, 5);
 
     // Should pad missing scores with 0.5
     assertThat(results).hasSize(5);
@@ -177,7 +177,7 @@ class CrossEncoderRerankerTest {
     when(agent.scorePassages(anyString(), anyString()))
         .thenThrow(new RuntimeException("LLM API error"));
 
-    List<CrossEncoderReranker.ScoredChunk> results = reranker.rerank(query, candidates, 3);
+    List<LLMReranker.ScoredChunk> results = reranker.rerank(query, candidates, 3);
 
     // Should use fallback scores (RRF * 10 or 0.5)
     assertThat(results).hasSize(3);
@@ -196,7 +196,7 @@ class CrossEncoderRerankerTest {
 
     String query = "test query";
 
-    List<CrossEncoderReranker.ScoredChunk> results = reranker.rerank(query, candidates, 3);
+    List<LLMReranker.ScoredChunk> results = reranker.rerank(query, candidates, 3);
 
     // Should return candidates as-is with their RRF scores
     assertThat(results).hasSize(3);
@@ -214,7 +214,7 @@ class CrossEncoderRerankerTest {
     // LLM returns scores with whitespace
     when(agent.scorePassages(anyString(), anyString())).thenReturn("  0.9 ,  0.7  , 0.5  ");
 
-    List<CrossEncoderReranker.ScoredChunk> results = reranker.rerank(query, candidates, 3);
+    List<LLMReranker.ScoredChunk> results = reranker.rerank(query, candidates, 3);
 
     assertThat(results).hasSize(3);
     assertThat(results.get(0).score()).isEqualTo(0.9);
