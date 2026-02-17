@@ -32,7 +32,6 @@ public class MemoryIndexService extends AbstractElasticsearchIndexService<Memory
   @Value("${app.elasticsearch.vector-dimensions:3072}")
   private int vectorDimensions;
 
-  @org.springframework.beans.factory.annotation.Autowired
   public MemoryIndexService(ElasticsearchClient elasticsearchClient, MeterRegistry meterRegistry) {
     super(elasticsearchClient, meterRegistry);
   }
@@ -68,7 +67,7 @@ public class MemoryIndexService extends AbstractElasticsearchIndexService<Memory
     return properties;
   }
 
-  @Override
+  @Override 
   protected Map<String, Object> convertToDocument(MemoryDocument memory) {
     Map<String, Object> doc = new HashMap<>();
     doc.put("sessionId", memory.getSessionId().toString());
@@ -192,7 +191,7 @@ public class MemoryIndexService extends AbstractElasticsearchIndexService<Memory
    * Performs vector search on memories (convenience method).
    *
    * @param sessionId the session ID to filter by
-   * @param queryEmbedding the query embedding vector
+   * @param queryEmbedding the query embedding vector 
    * @param topK number of results to return
    * @return list of matching memories
    */

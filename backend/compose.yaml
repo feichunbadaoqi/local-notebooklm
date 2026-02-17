@@ -4,8 +4,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.elasticsearch
-    # Fallback to official image if build fails (without Chinese support)
-    image: 'docker.elastic.co/elasticsearch/elasticsearch:9.0.0'
+    image: 'notebooklm-elasticsearch:9.0.0'
     container_name: notebooklm-elasticsearch
     environment:
       - 'ELASTIC_PASSWORD=secret'

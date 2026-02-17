@@ -53,7 +53,15 @@
       "Bash(Remove-Item \"backend\\\\src\\\\main\\\\java\\\\com\\\\flamingo\\\\ai\\\\notebooklm\\\\api\\\\rest\\\\MemoryController.java\")",
       "Bash(Remove-Item \"backend\\\\src\\\\main\\\\java\\\\com\\\\flamingo\\\\ai\\\\notebooklm\\\\api\\\\dto\\\\request\\\\CreateMemoryRequest.java\")",
       "Bash(Remove-Item:*)",
-      "Bash(./gradlew jacocoTestReport:*)"
+      "Bash(./gradlew jacocoTestReport:*)",
+      "Bash(./gradlew compileTestJava:*)",
+      "Bash(Select-Object -Last 100)",
+      "Bash(xargs:*)",
+      "WebFetch(domain:www.elastic.co)",
+      "WebFetch(domain:artifacts.elastic.co)",
+      "WebFetch(domain:javadoc.io)",
+      "Bash(./gradlew checkstyleMain:*)",
+      "Bash(python3:*)"
     ]
   }
 }

@@ -33,7 +33,6 @@ public class ChatMessageIndexService
   @Value("${app.elasticsearch.vector-dimensions:3072}")
   private int vectorDimensions;
 
-  @org.springframework.beans.factory.annotation.Autowired
   public ChatMessageIndexService(
       ElasticsearchClient elasticsearchClient, MeterRegistry meterRegistry) {
     super(elasticsearchClient, meterRegistry);

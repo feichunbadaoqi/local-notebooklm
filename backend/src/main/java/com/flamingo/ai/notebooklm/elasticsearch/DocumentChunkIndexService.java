@@ -9,13 +9,18 @@ import co.elastic.clients.elasticsearch._types.query_dsl.Query;
 import co.elastic.clients.elasticsearch._types.query_dsl.TextQueryType;
 import co.elastic.clients.elasticsearch.core.SearchRequest;
 import io.micrometer.core.instrument.MeterRegistry;
+
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import lombok.extern.slf4j.Slf4j;
+
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+
+import com.google.common.annotations.VisibleForTesting;
 
 /**
  * Elasticsearch index service for DocumentChunk documents.
@@ -36,13 +41,14 @@ public class DocumentChunkIndexService extends AbstractElasticsearchIndexService
   @Value("${app.elasticsearch.text-analyzer:standard}")
   private String textAnalyzer;
 
-  @org.springframework.beans.factory.annotation.Autowired
+  @Autowired
   public DocumentChunkIndexService(
       ElasticsearchClient elasticsearchClient, MeterRegistry meterRegistry) {
     super(elasticsearchClient, meterRegistry);
   }
 
   /** Constructor for testing - allows setting index name and vector dimensions. */
+  @VisibleForTesting
   public DocumentChunkIndexService(
       ElasticsearchClient elasticsearchClient,
       MeterRegistry meterRegistry,
@@ -261,11 +267,11 @@ public class DocumentChunkIndexService extends AbstractElasticsearchIndexService
                                             m.multiMatch(
                                                 mm ->
                                                     mm.fields(
-                                                            "documentTitle^3.0", // 3x boost for
+                                                            //"documentTitle^3.0", // 3x boost for
                                                             // title
-                                                            "sectionTitle^2.0", // 2x boost for
+                                                            //"sectionTitle^2.0", // 2x boost for
                                                             // section
-                                                            "fileName^1.5", // 1.5x boost for
+                                                            //"fileName^1.5", // 1.5x boost for
                                                             // filename
                                                             "content^1.0") // Baseline for content
                                                         .query(query)
@@ -303,18 +309,20 @@ public class DocumentChunkIndexService extends AbstractElasticsearchIndexService
   }
 
   /**
-   * Performs hybrid search using Elasticsearch's native RRF retriever. Combines BM25 keyword search
-   * with dual kNN vector searches (title + content embeddings) in a single server-side query.
+   * Performs hybrid search using Elasticsearch's native RRF retriever.
    *
-   * <p>This method eliminates the need for application-side RRF fusion by leveraging
-   * Elasticsearch's built-in retriever API (available in ES 8.14+, GA in 8.16).
-   *
+   * @deprecated Elasticsearch's native RRF (Reciprocal Rank Fusion) retriever requires a
+   *     commercial license (Platinum/Enterprise). Using it on the basic/free license throws a
+   *     {@code security_exception}. Use application-side RRF instead: call {@link
+   *     #vectorSearch(UUID, List, int)} and {@link #keywordSearch(UUID, String, int)} separately,
+   *     then fuse results in the service layer.
    * @param sessionId Session filter
    * @param query Text query for BM25
    * @param queryEmbedding Vector for kNN searches
    * @param topK Number of results to return
    * @return Top K documents ranked by RRF fusion
    */
+  @Deprecated
   public List<DocumentChunk> hybridSearchWithRRF(
       UUID sessionId, String query, List<Float> queryEmbedding, int topK) {
     log.debug("hybridSearchWithRRF for session {}, topK={}", sessionId, topK);
@@ -438,30 +446,21 @@ public class DocumentChunkIndexService extends AbstractElasticsearchIndexService
     return sb.toString();
   }
 
-  /**
-   * @deprecated Use {@link #hybridSearchWithRRF} for native RRF hybrid search.
-   */
-  @Deprecated
+  /** Convenience method: vector search filtered by session. */
   public List<DocumentChunk> vectorSearch(UUID sessionId, List<Float> queryEmbedding, int topK) {
     Map<String, Object> criteria = new HashMap<>();
     criteria.put("sessionId", sessionId);
     return vectorSearch(criteria, queryEmbedding, topK);
   }
 
-  /**
-   * @deprecated Use {@link #hybridSearchWithRRF} for native RRF hybrid search.
-   */
-  @Deprecated
+  /** Convenience method: BM25 keyword search filtered by session. */
   public List<DocumentChunk> keywordSearch(UUID sessionId, String query, int topK) {
     Map<String, Object> criteria = new HashMap<>();
     criteria.put("sessionId", sessionId);
     return keywordSearch(criteria, query, topK);
   }
 
-  /**
-   * @deprecated Use {@link #hybridSearchWithRRF} for native RRF hybrid search.
-   */
-  @Deprecated
+  /** Convenience method: vector search on a specific embedding field, filtered by session. */
   public List<DocumentChunk> vectorSearchByField(
       UUID sessionId, String embeddingField, List<Float> queryEmbedding, int topK) {
     Map<String, Object> criteria = new HashMap<>();

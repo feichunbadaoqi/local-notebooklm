@@ -1,6 +1,7 @@
 package com.flamingo.ai.notebooklm.elasticsearch;
 
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
+import co.elastic.clients.elasticsearch._types.mapping.DynamicMapping;
 import co.elastic.clients.elasticsearch._types.mapping.Property;
 import co.elastic.clients.elasticsearch._types.query_dsl.Query;
 import co.elastic.clients.elasticsearch.core.BulkRequest;
@@ -144,17 +145,70 @@ public abstract class AbstractElasticsearchIndexService<T>
       if (!exists) {
         createIndex();
         log.info("Created Elasticsearch index: {}", getIndexName());
+      } else {
+        warnIfMappingMismatch();
       }
     } catch (Exception e) {
-      log.warn("Could not check/create Elasticsearch index {}: {}", getIndexName(), e.getMessage());
+      // Log at ERROR (not warn) so failed index initialization is clearly visible.
+      // Not re-thrown to allow the application to start when Elasticsearch is temporarily
+      // unavailable; the error will surface when documents are indexed or searched.
+      log.error(
+          "Failed to initialize Elasticsearch index '{}' — index may have incorrect mappings: {}",
+          getIndexName(),
+          e.getMessage(),
+          e);
     }
   }
 
   private void createIndex() throws IOException {
     Map<String, Property> properties = defineIndexProperties();
+    // dynamic=false prevents Elasticsearch from auto-mapping undeclared fields,
+    // ensuring only explicitly defined field types are used.
     CreateIndexRequest request =
-        CreateIndexRequest.of(c -> c.index(getIndexName()).mappings(m -> m.properties(properties)));
+        CreateIndexRequest.of(
+            c ->
+                c.index(getIndexName())
+                    .mappings(m -> m.dynamic(DynamicMapping.False).properties(properties)));
     elasticsearchClient.indices().create(request);
+  }
+
+  /**
+   * Checks whether the existing index mappings match what the service defines. Logs an ERROR for
+   * any field whose actual type differs from the expected type (e.g., keyword mapped as text due to
+   * dynamic mapping). The user must delete and recreate the index to fix type mismatches.
+   */
+  private void warnIfMappingMismatch() {
+    try {
+      Map<String, Property> expectedProperties = defineIndexProperties();
+      var response = elasticsearchClient.indices().getMapping(g -> g.index(getIndexName()));
+      var indexMapping = response.get(getIndexName());
+      if (indexMapping == null) {
+        return;
+      }
+      Map<String, Property> actualProperties = indexMapping.mappings().properties();
+
+      boolean hasMismatch = false;
+      for (Map.Entry<String, Property> entry : expectedProperties.entrySet()) {
+        String field = entry.getKey();
+        Property expected = entry.getValue();
+        Property actual = actualProperties.get(field);
+        if (actual != null && expected._kind() != actual._kind()) {
+          log.error(
+              "Mapping mismatch in index '{}': field '{}' expected type '{}' but found '{}'. "
+                  + "Delete the index and restart the application to apply correct mappings.",
+              getIndexName(),
+              field,
+              expected._kind(),
+              actual._kind());
+          hasMismatch = true;
+        }
+      }
+      if (!hasMismatch) {
+        log.debug("Index '{}' mapping verified correctly.", getIndexName());
+      }
+    } catch (Exception e) {
+      log.warn("Could not validate mapping for index '{}': {}", getIndexName(), e.getMessage());
+    }
   }
 
   @Override
@@ -224,6 +278,7 @@ public abstract class AbstractElasticsearchIndexService<T>
       SearchRequest request =
           buildVectorSearchRequest(filterCriteria, queryEmbedding, topK, embeddingField);
       SearchResponse<Map> response = elasticsearchClient.search(request, Map.class);
+      logSearchResults("vectorSearch", embeddingField, response);
       List<T> results = mapHitsToDocuments(response.hits().hits());
       meterRegistry.counter(getMetricPrefix() + ".vector_search").increment();
       return results;
@@ -260,6 +315,7 @@ public abstract class AbstractElasticsearchIndexService<T>
     try {
       SearchRequest request = buildKeywordSearchRequest(filterCriteria, query, topK);
       SearchResponse<Map> response = elasticsearchClient.search(request, Map.class);
+      logSearchResults("keywordSearch", query, response);
       List<T> results = mapHitsToDocuments(response.hits().hits());
       meterRegistry.counter(getMetricPrefix() + ".keyword_search").increment();
       return results;
@@ -308,11 +364,59 @@ public abstract class AbstractElasticsearchIndexService<T>
     }
   }
 
+  @SuppressWarnings("unchecked")
+  private void logSearchResults(String searchType, String searchParam, SearchResponse<Map> response) {
+    List<Hit<Map>> hits = response.hits().hits();
+    long totalHits =
+        response.hits().total() != null ? response.hits().total().value() : hits.size();
+    log.info(
+        "[{}] index={} param='{}' totalHits={} returned={}",
+        searchType,
+        getIndexName(),
+        searchParam,
+        totalHits,
+        hits.size());
+    for (int i = 0; i < hits.size(); i++) {
+      Hit<Map> hit = hits.get(i);
+      Map<String, Object> src = hit.source();
+      String contentPreview = "";
+      String docId = "";
+      String fileName = "";
+      int chunkIndex = -1;
+      if (src != null) {
+        Object content = src.get("content");
+        if (content instanceof String s) {
+          contentPreview = s.length() > 120 ? s.substring(0, 120) + "..." : s;
+        }
+        Object d = src.get("documentId");
+        if (d != null) docId = d.toString();
+        Object f = src.get("fileName");
+        if (f != null) fileName = f.toString();
+        Object ci = src.get("chunkIndex");
+        if (ci instanceof Number n) chunkIndex = n.intValue();
+      }
+      log.info(
+          "  [{}] rank={} id={} score={} doc={} file='{}' chunk={} content='{}'",
+          searchType,
+          i + 1,
+          hit.id(),
+          hit.score(),
+          docId,
+          fileName,
+          chunkIndex,
+          contentPreview);
+    }
+  }
+
+  @SuppressWarnings("unchecked")
   private List<T> mapHitsToDocuments(List<Hit<Map>> hits) {
     List<T> documents = new ArrayList<>();
     for (Hit<Map> hit : hits) {
       Map<String, Object> source = hit.source();
       if (source != null) {
+        // Elasticsearch _id is metadata and not included in _source.
+        // Inject it so convertFromDocument can populate the entity's id field.
+        source.put("id", hit.id());
         T document = convertFromDocument(source);
         // Set relevance score if the document supports it
         if (document instanceof ScoredDocument && hit.score() != null) {
