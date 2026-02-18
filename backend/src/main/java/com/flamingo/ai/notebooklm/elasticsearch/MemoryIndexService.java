@@ -32,6 +32,12 @@ public class MemoryIndexService extends AbstractElasticsearchIndexService<Memory
   @Value("${app.elasticsearch.vector-dimensions:3072}")
   private int vectorDimensions;
 
+  @Value("${app.elasticsearch.text-analyzer:standard}")
+  private String textAnalyzer;
+
+  @Value("${app.elasticsearch.text-search-analyzer:standard}")
+  private String textSearchAnalyzer;
+
   public MemoryIndexService(ElasticsearchClient elasticsearchClient, MeterRegistry meterRegistry) {
     super(elasticsearchClient, meterRegistry);
   }
@@ -50,7 +56,13 @@ public class MemoryIndexService extends AbstractElasticsearchIndexService<Memory
   protected Map<String, Property> defineIndexProperties() {
     Map<String, Property> properties = new HashMap<>();
     properties.put("sessionId", Property.of(p -> p.keyword(k -> k)));
-    properties.put("memoryContent", Property.of(p -> p.text(TextProperty.of(t -> t))));
+    properties.put(
+        "memoryContent",
+        Property.of(
+            p ->
+                p.text(
+                    TextProperty.of(
+                        t -> t.analyzer(textAnalyzer).searchAnalyzer(textSearchAnalyzer)))));
     properties.put("memoryType", Property.of(p -> p.keyword(k -> k)));
     properties.put("importance", Property.of(p -> p.float_(f -> f)));
     properties.put("timestamp", Property.of(p -> p.long_(l -> l)));
@@ -67,7 +79,7 @@ public class MemoryIndexService extends AbstractElasticsearchIndexService<Memory
     return properties;
   }
 
-  @Override 
+  @Override
   protected Map<String, Object> convertToDocument(MemoryDocument memory) {
     Map<String, Object> doc = new HashMap<>();
     doc.put("sessionId", memory.getSessionId().toString());
@@ -191,7 +203,7 @@ public class MemoryIndexService extends AbstractElasticsearchIndexService<Memory
    * Performs vector search on memories (convenience method).
    *
    * @param sessionId the session ID to filter by
-   * @param queryEmbedding the query embedding vector 
+   * @param queryEmbedding the query embedding vector
    * @param topK number of results to return
    * @return list of matching memories
    */

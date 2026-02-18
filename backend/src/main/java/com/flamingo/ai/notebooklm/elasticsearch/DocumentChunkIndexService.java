@@ -8,19 +8,16 @@ import co.elastic.clients.elasticsearch._types.mapping.TextProperty;
 import co.elastic.clients.elasticsearch._types.query_dsl.Query;
 import co.elastic.clients.elasticsearch._types.query_dsl.TextQueryType;
 import co.elastic.clients.elasticsearch.core.SearchRequest;
+import com.google.common.annotations.VisibleForTesting;
 import io.micrometer.core.instrument.MeterRegistry;
-
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import lombok.extern.slf4j.Slf4j;
-
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
-
-import com.google.common.annotations.VisibleForTesting;
 
 /**
  * Elasticsearch index service for DocumentChunk documents.
@@ -41,6 +38,9 @@ public class DocumentChunkIndexService extends AbstractElasticsearchIndexService
   @Value("${app.elasticsearch.text-analyzer:standard}")
   private String textAnalyzer;
 
+  @Value("${app.elasticsearch.text-search-analyzer:standard}")
+  private String textSearchAnalyzer;
+
   @Autowired
   public DocumentChunkIndexService(
       ElasticsearchClient elasticsearchClient, MeterRegistry meterRegistry) {
@@ -58,6 +58,7 @@ public class DocumentChunkIndexService extends AbstractElasticsearchIndexService
     this.indexName = indexName;
     this.vectorDimensions = vectorDimensions;
     this.textAnalyzer = "standard"; // Default for tests
+    this.textSearchAnalyzer = "standard"; // Default for tests
   }
 
   @Override
@@ -72,8 +73,14 @@ public class DocumentChunkIndexService extends AbstractElasticsearchIndexService
 
   @Override
   protected Map<String, Property> defineIndexProperties() {
-    log.info("Creating index '{}' with text analyzer: {}", indexName, textAnalyzer);
-    if (!"standard".equals(textAnalyzer) && !"smartcn".equals(textAnalyzer)) {
+    log.info(
+        "Creating index '{}' with text analyzer: {}, search analyzer: {}",
+        indexName,
+        textAnalyzer,
+        textSearchAnalyzer);
+    if (!"standard".equals(textAnalyzer)
+        && !"ik_max_word".equals(textAnalyzer)
+        && !"ik_smart".equals(textAnalyzer)) {
       log.warn("Using custom analyzer '{}'. Ensure it's installed in Elasticsearch.", textAnalyzer);
     }
 
@@ -84,7 +91,12 @@ public class DocumentChunkIndexService extends AbstractElasticsearchIndexService
     properties.put("fileName", Property.of(p -> p.text(TextProperty.of(t -> t))));
     properties.put("chunkIndex", Property.of(p -> p.integer(i -> i)));
     properties.put(
-        "content", Property.of(p -> p.text(TextProperty.of(t -> t.analyzer(textAnalyzer)))));
+        "content",
+        Property.of(
+            p ->
+                p.text(
+                    TextProperty.of(
+                        t -> t.analyzer(textAnalyzer).searchAnalyzer(textSearchAnalyzer)))));
     properties.put("tokenCount", Property.of(p -> p.integer(i -> i)));
     properties.put(
         "embedding",
@@ -119,14 +131,28 @@ public class DocumentChunkIndexService extends AbstractElasticsearchIndexService
                                 .similarity(DenseVectorSimilarity.Cosine)))));
     // Metadata fields for enhanced retrieval (RAG optimization Phase 1)
     properties.put(
-        "documentTitle", Property.of(p -> p.text(TextProperty.of(t -> t.analyzer(textAnalyzer)))));
+        "documentTitle",
+        Property.of(
+            p ->
+                p.text(
+                    TextProperty.of(
+                        t -> t.analyzer(textAnalyzer).searchAnalyzer(textSearchAnalyzer)))));
     properties.put(
-        "sectionTitle", Property.of(p -> p.text(TextProperty.of(t -> t.analyzer(textAnalyzer)))));
+        "sectionTitle",
+        Property.of(
+            p ->
+                p.text(
+                    TextProperty.of(
+                        t -> t.analyzer(textAnalyzer).searchAnalyzer(textSearchAnalyzer)))));
     // keywords is an array of tags (["kusto", "gpu", "oversubscription"]), not free-form text
     properties.put("keywords", Property.of(p -> p.keyword(k -> k)));
     properties.put(
         "enrichedContent",
-        Property.of(p -> p.text(TextProperty.of(t -> t.analyzer(textAnalyzer)))));
+        Property.of(
+            p ->
+                p.text(
+                    TextProperty.of(
+                        t -> t.analyzer(textAnalyzer).searchAnalyzer(textSearchAnalyzer)))));
 
     return properties;
   }
@@ -267,11 +293,11 @@ public class DocumentChunkIndexService extends AbstractElasticsearchIndexService
                                             m.multiMatch(
                                                 mm ->
                                                     mm.fields(
-                                                            //"documentTitle^3.0", // 3x boost for
+                                                            // "documentTitle^3.0", // 3x boost for
                                                             // title
-                                                            //"sectionTitle^2.0", // 2x boost for
+                                                            // "sectionTitle^2.0", // 2x boost for
                                                             // section
-                                                            //"fileName^1.5", // 1.5x boost for
+                                                            // "fileName^1.5", // 1.5x boost for
                                                             // filename
                                                             "content^1.0") // Baseline for content
                                                         .query(query)
@@ -311,11 +337,11 @@ public class DocumentChunkIndexService extends AbstractElasticsearchIndexService
   /**
    * Performs hybrid search using Elasticsearch's native RRF retriever.
    *
-   * @deprecated Elasticsearch's native RRF (Reciprocal Rank Fusion) retriever requires a
-   *     commercial license (Platinum/Enterprise). Using it on the basic/free license throws a
-   *     {@code security_exception}. Use application-side RRF instead: call {@link
-   *     #vectorSearch(UUID, List, int)} and {@link #keywordSearch(UUID, String, int)} separately,
-   *     then fuse results in the service layer.
+   * @deprecated Elasticsearch's native RRF (Reciprocal Rank Fusion) retriever requires a commercial
+   *     license (Platinum/Enterprise). Using it on the basic/free license throws a {@code
+   *     security_exception}. Use application-side RRF instead: call {@link #vectorSearch(UUID,
+   *     List, int)} and {@link #keywordSearch(UUID, String, int)} separately, then fuse results in
+   *     the service layer.
    * @param sessionId Session filter
    * @param query Text query for BM25
    * @param queryEmbedding Vector for kNN searches

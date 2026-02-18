@@ -57,10 +57,11 @@ app:
     # Text analyzer for multilingual support
     # Options:
     #   - standard: English only (default)
-    #   - smartcn: Chinese + English (requires analysis-smartcn plugin)
-    #   - ik_smart / ik_max_word: Advanced Chinese (requires IK Analysis plugin)
-    # Docker: SmartCN is auto-installed via Dockerfile.elasticsearch
-    text-analyzer: smartcn
+    #   - ik_max_word: Advanced Chinese indexing - fine-grained segmentation (requires IK Analysis plugin)
+    #   - ik_smart: Advanced Chinese search - coarser, better for queries (requires IK Analysis plugin)
+    # Docker: IK Analysis is auto-installed via Dockerfile.elasticsearch
+    text-analyzer: ik_max_word
+    text-search-analyzer: ik_smart
 
 # ============ LangChain4j / OpenAI ============
 langchain4j:

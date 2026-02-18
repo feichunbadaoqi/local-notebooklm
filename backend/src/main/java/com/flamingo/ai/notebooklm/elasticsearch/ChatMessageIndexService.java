@@ -13,6 +13,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -33,6 +34,13 @@ public class ChatMessageIndexService
   @Value("${app.elasticsearch.vector-dimensions:3072}")
   private int vectorDimensions;
 
+  @Value("${app.elasticsearch.text-analyzer:standard}")
+  private String textAnalyzer;
+
+  @Value("${app.elasticsearch.text-search-analyzer:standard}")
+  private String textSearchAnalyzer;
+
+  @Autowired
   public ChatMessageIndexService(
       ElasticsearchClient elasticsearchClient, MeterRegistry meterRegistry) {
     super(elasticsearchClient, meterRegistry);
@@ -53,7 +61,13 @@ public class ChatMessageIndexService
     Map<String, Property> properties = new HashMap<>();
     properties.put("sessionId", Property.of(p -> p.keyword(k -> k)));
     properties.put("role", Property.of(p -> p.keyword(k -> k)));
-    properties.put("content", Property.of(p -> p.text(TextProperty.of(t -> t))));
+    properties.put(
+        "content",
+        Property.of(
+            p ->
+                p.text(
+                    TextProperty.of(
+                        t -> t.analyzer(textAnalyzer).searchAnalyzer(textSearchAnalyzer)))));
     properties.put("timestamp", Property.of(p -> p.long_(l -> l)));
     properties.put("tokenCount", Property.of(p -> p.integer(i -> i)));
     properties.put(
