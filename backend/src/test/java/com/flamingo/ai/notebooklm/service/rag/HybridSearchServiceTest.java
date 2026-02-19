@@ -32,7 +32,6 @@ class HybridSearchServiceTest {
   @Mock private DocumentChunkIndexService documentChunkIndexService;
   @Mock private EmbeddingService embeddingService;
   @Mock private DiversityReranker diversityReranker;
-  @Mock private CrossEncoderRerankService crossEncoderRerankService;
   @Mock private LLMReranker llmReranker;
   @Mock private MeterRegistry meterRegistry;
   @Mock private Counter counter;
@@ -55,7 +54,6 @@ class HybridSearchServiceTest {
             documentChunkIndexService,
             embeddingService,
             diversityReranker,
-            crossEncoderRerankService,
             llmReranker,
             ragConfig,
             meterRegistry);
@@ -80,8 +78,8 @@ class HybridSearchServiceTest {
     }
 
     @Test
-    @DisplayName("should use native RRF hybrid search via hybridSearchWithRRF")
-    void shouldUseNativeRrfHybridSearch() {
+    @DisplayName("should use application-side RRF combining vector and keyword search")
+    void shouldUseApplicationSideRrfHybridSearch() {
       try (var timerMock =
           org.mockito.Mockito.mockStatic(Timer.class, org.mockito.Mockito.CALLS_REAL_METHODS)) {
         timerMock.when(() -> Timer.start(meterRegistry)).thenReturn(timerSample);
@@ -92,15 +90,16 @@ class HybridSearchServiceTest {
         DocumentChunk chunk3 = createChunk("c3", "Hybrid result 3");
 
         when(embeddingService.embedQuery(anyString())).thenReturn(embedding);
-        when(documentChunkIndexService.hybridSearchWithRRF(
-                eq(sessionId), anyString(), eq(embedding), anyInt()))
-            .thenReturn(List.of(chunk1, chunk2, chunk3));
-        when(crossEncoderRerankService.rerank(anyString(), any(), anyInt()))
+        when(documentChunkIndexService.vectorSearch(eq(sessionId), eq(embedding), anyInt()))
+            .thenReturn(List.of(chunk1, chunk2));
+        when(documentChunkIndexService.keywordSearch(eq(sessionId), anyString(), anyInt()))
+            .thenReturn(List.of(chunk2, chunk3));
+        when(llmReranker.rerank(anyString(), any(), anyInt()))
             .thenAnswer(
                 invocation -> {
                   List<DocumentChunk> chunks = invocation.getArgument(1);
                   return chunks.stream()
-                      .map(c -> new CrossEncoderRerankService.ScoredChunk(c, 0.8))
+                      .map(c -> new LLMReranker.ScoredChunk(c, 0.8))
                       .toList();
                 });
         when(diversityReranker.rerank(any(), anyInt()))
@@ -111,16 +110,16 @@ class HybridSearchServiceTest {
 
         assertThat(results).isNotEmpty();
         verify(embeddingService).embedQuery("test query");
-        verify(documentChunkIndexService)
-            .hybridSearchWithRRF(eq(sessionId), eq("test query"), eq(embedding), anyInt());
-        verify(crossEncoderRerankService).rerank(anyString(), any(), anyInt());
+        verify(documentChunkIndexService).vectorSearch(eq(sessionId), eq(embedding), anyInt());
+        verify(documentChunkIndexService).keywordSearch(eq(sessionId), eq("test query"), anyInt());
+        verify(llmReranker).rerank(anyString(), any(), anyInt());
         verify(diversityReranker).rerank(any(), anyInt());
       }
     }
 
     @Test
-    @DisplayName("should fall back to legacy search when native RRF fails")
-    void shouldFallBackToLegacySearchWhenNativeRrfFails() {
+    @DisplayName("should merge results from vector and keyword search via application-side RRF")
+    void shouldMergeVectorAndKeywordResultsViaRrf() {
       try (var timerMock =
           org.mockito.Mockito.mockStatic(Timer.class, org.mockito.Mockito.CALLS_REAL_METHODS)) {
         timerMock.when(() -> Timer.start(meterRegistry)).thenReturn(timerSample);
@@ -130,18 +129,16 @@ class HybridSearchServiceTest {
         DocumentChunk keywordChunk = createChunk("k1", "Keyword result");
 
         when(embeddingService.embedQuery(anyString())).thenReturn(embedding);
-        when(documentChunkIndexService.hybridSearchWithRRF(any(), anyString(), any(), anyInt()))
-            .thenThrow(new RuntimeException("Elasticsearch RRF not available"));
         when(documentChunkIndexService.vectorSearch(eq(sessionId), eq(embedding), anyInt()))
             .thenReturn(List.of(vectorChunk));
         when(documentChunkIndexService.keywordSearch(eq(sessionId), anyString(), anyInt()))
             .thenReturn(List.of(keywordChunk));
-        when(crossEncoderRerankService.rerank(anyString(), any(), anyInt()))
+        when(llmReranker.rerank(anyString(), any(), anyInt()))
             .thenAnswer(
                 invocation -> {
                   List<DocumentChunk> chunks = invocation.getArgument(1);
                   return chunks.stream()
-                      .map(c -> new CrossEncoderRerankService.ScoredChunk(c, 0.7))
+                      .map(c -> new LLMReranker.ScoredChunk(c, 0.7))
                       .toList();
                 });
         when(diversityReranker.rerank(any(), anyInt()))
@@ -150,7 +147,6 @@ class HybridSearchServiceTest {
         List<DocumentChunk> results =
             hybridSearchService.search(sessionId, "test query", InteractionMode.EXPLORING);
 
-        // Should fall back to legacy vector + keyword search
         assertThat(results).isNotEmpty();
         verify(documentChunkIndexService).vectorSearch(eq(sessionId), eq(embedding), anyInt());
         verify(documentChunkIndexService).keywordSearch(eq(sessionId), anyString(), anyInt());
@@ -167,10 +163,11 @@ class HybridSearchServiceTest {
         List<Float> embedding = List.of(0.1f, 0.2f, 0.3f);
 
         when(embeddingService.embedQuery(anyString())).thenReturn(embedding);
-        when(documentChunkIndexService.hybridSearchWithRRF(
-                eq(sessionId), anyString(), any(), anyInt()))
+        when(documentChunkIndexService.vectorSearch(eq(sessionId), eq(embedding), anyInt()))
             .thenReturn(List.of());
-        when(crossEncoderRerankService.rerank(anyString(), any(), anyInt())).thenReturn(List.of());
+        when(documentChunkIndexService.keywordSearch(eq(sessionId), anyString(), anyInt()))
+            .thenReturn(List.of());
+        when(llmReranker.rerank(anyString(), any(), anyInt())).thenReturn(List.of());
         when(diversityReranker.rerank(any(), anyInt())).thenReturn(List.of());
 
         List<DocumentChunk> results =

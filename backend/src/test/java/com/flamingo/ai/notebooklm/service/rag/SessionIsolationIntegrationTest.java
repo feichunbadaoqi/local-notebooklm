@@ -96,15 +96,12 @@ class SessionIsolationIntegrationTest {
 
     // LLMReranker with enabled=false (Java default) passes through candidates without LLM calls
     LLMReranker llmReranker = new LLMReranker(null, meterRegistry);
-    CrossEncoderRerankService crossEncoderRerankService =
-        new CrossEncoderRerankService(elasticsearchClient, meterRegistry, ragConfig);
 
     hybridSearchService =
         new HybridSearchService(
             indexService,
             embeddingService,
             diversityReranker,
-            crossEncoderRerankService,
             llmReranker,
             ragConfig,
             meterRegistry);

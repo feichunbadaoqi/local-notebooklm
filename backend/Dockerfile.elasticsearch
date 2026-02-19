@@ -1,11 +1,12 @@
 # Custom Elasticsearch image with SmartCN plugin for Chinese language support
-FROM docker.elastic.co/elasticsearch/elasticsearch:9.0.0
+FROM docker.elastic.co/elasticsearch/elasticsearch:9.1.4
 
 # Install analysis-smartcn plugin for Chinese/English text analysis
 # RUN bin/elasticsearch-plugin install --batch analysis-smartcn
 
 # smartcn plugin is not maximized chinese word segmentation, so we switch to ik plugin which is more popular and effective for chinese text analysis
-RUN bin/elasticsearch-plugin install https://get.infini.cloud/elasticsearch/analysis-ik/9.1.4
+RUN bin/elasticsearch-plugin install --batch https://get.infini.cloud/elasticsearch/analysis-ik/9.1.4
+
 
 # Verify installation
 RUN bin/elasticsearch-plugin list

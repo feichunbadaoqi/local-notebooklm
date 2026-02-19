@@ -4,7 +4,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.elasticsearch
-    image: 'notebooklm-elasticsearch:9.0.0'
+    image: 'notebooklm-elasticsearch:9.1.4'
     container_name: notebooklm-elasticsearch
     environment:
       - 'ELASTIC_PASSWORD=secret'
@@ -19,7 +19,7 @@ services:
       # Persist Elasticsearch data
       - elasticsearch-data:/usr/share/elasticsearch/data
   kibana:
-    image: docker.elastic.co/kibana/kibana:9.0.0
+    image: docker.elastic.co/kibana/kibana:9.1.4
     container_name: notebooklm-kibana
     ports:
       - 5601:5601

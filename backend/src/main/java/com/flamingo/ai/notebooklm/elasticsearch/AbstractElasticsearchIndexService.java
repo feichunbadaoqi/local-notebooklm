@@ -365,7 +365,8 @@ public abstract class AbstractElasticsearchIndexService<T>
   }
 
   @SuppressWarnings("unchecked")
-  private void logSearchResults(String searchType, String searchParam, SearchResponse<Map> response) {
+  private void logSearchResults(
+      String searchType, String searchParam, SearchResponse<Map> response) {
     List<Hit<Map>> hits = response.hits().hits();
     long totalHits =
         response.hits().total() != null ? response.hits().total().value() : hits.size();

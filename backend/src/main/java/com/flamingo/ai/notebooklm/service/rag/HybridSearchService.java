@@ -78,7 +78,8 @@ public class HybridSearchService {
     }
 
     // Perform hybrid search using application-side RRF (BM25 + kNN, fused in Java).
-    // Note: Elasticsearch's native RRF retriever requires a commercial license (Platinum/Enterprise)
+    // Note: Elasticsearch's native RRF retriever requires a commercial license
+    // (Platinum/Enterprise)
     // and is therefore not used here.
     log.debug("Performing vector search...");
     List<DocumentChunk> vectorResults =
@@ -133,8 +134,8 @@ public class HybridSearchService {
   /**
    * Applies Reciprocal Rank Fusion to combine results from multiple retrievers.
    *
-   * <p>RRF score = Σ 1/(k + rank_i) for each retriever. This is the primary hybrid fusion
-   * strategy, replacing Elasticsearch's native RRF retriever which requires a commercial license.
+   * <p>RRF score = Σ 1/(k + rank_i) for each retriever. This is the primary hybrid fusion strategy,
+   * replacing Elasticsearch's native RRF retriever which requires a commercial license.
    */
   private List<DocumentChunk> applyRrf(
       List<DocumentChunk> vectorResults, List<DocumentChunk> keywordResults, int topK) {
@@ -155,7 +156,8 @@ public class HybridSearchService {
       DocumentChunk chunk = vectorResults.get(i);
       String id = chunk.getId();
       if (id == null) {
-        log.warn("[RRF] vectorResults[{}] has null id — all null-id chunks collapse to one key!", i);
+        log.warn(
+            "[RRF] vectorResults[{}] has null id — all null-id chunks collapse to one key!", i);
       }
       double score = 1.0 / (rrfK + i + 1);
       rrfScores.merge(id, score, Double::sum);
@@ -167,7 +169,8 @@ public class HybridSearchService {
       DocumentChunk chunk = keywordResults.get(i);
       String id = chunk.getId();
       if (id == null) {
-        log.warn("[RRF] keywordResults[{}] has null id — all null-id chunks collapse to one key!", i);
+        log.warn(
+            "[RRF] keywordResults[{}] has null id — all null-id chunks collapse to one key!", i);
       }
       double score = 1.0 / (rrfK + i + 1);
       rrfScores.merge(id, score, Double::sum);
