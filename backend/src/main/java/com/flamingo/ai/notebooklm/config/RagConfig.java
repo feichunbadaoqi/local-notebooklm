@@ -20,6 +20,7 @@ public class RagConfig {
   private Diversity diversity = new Diversity();
   private QueryReformulation queryReformulation = new QueryReformulation();
   private Reranking reranking = new Reranking();
+  private ImageStorage imageStorage = new ImageStorage();
 
   @Getter
   @Setter
@@ -34,6 +35,12 @@ public class RagConfig {
     private int topK = 6;
     private int rrfK = 60;
     private int candidatesMultiplier = 2;
+
+    /** Enable additive RRF score boost for chunks from the previous response's documents. */
+    private boolean sourceAnchoringEnabled = true;
+
+    /** Additive boost applied to anchor document chunks in RRF scoring (conservative default). */
+    private double sourceAnchoringBoost = 0.3;
   }
 
   @Getter
@@ -79,6 +86,9 @@ public class RagConfig {
     private int historyWindow = 5;
     private Integer candidatePoolMultiplier = 4;
     private int maxQueryLength = 500;
+
+    /** Minimum number of recent messages to always fetch from DB for recency-biased context. */
+    private int minRecentMessages = 2;
   }
 
   @Getter
@@ -100,5 +110,19 @@ public class RagConfig {
       private boolean enabled = false;
       private int batchSize = 20;
     }
+  }
+
+  /** Configuration for image storage extracted during document processing. */
+  @Getter
+  @Setter
+  public static class ImageStorage {
+    /** Root directory for storing extracted images. */
+    private String basePath = "data/images";
+
+    /** Whether image extraction and storage is enabled. */
+    private boolean enabled = true;
+
+    /** Maximum image file size in bytes; images larger than this are skipped. */
+    private long maxFileSizeBytes = 10 * 1024 * 1024L; // 10 MB
   }
 }

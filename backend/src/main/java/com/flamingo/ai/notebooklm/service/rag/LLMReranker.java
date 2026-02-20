@@ -1,6 +1,7 @@
 package com.flamingo.ai.notebooklm.service.rag;
 
 import com.flamingo.ai.notebooklm.agent.CrossEncoderRerankerAgent;
+import com.flamingo.ai.notebooklm.agent.dto.RerankingScores;
 import com.flamingo.ai.notebooklm.elasticsearch.DocumentChunk;
 import io.micrometer.core.annotation.Timed;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -69,11 +70,12 @@ public class LLMReranker {
       String passages = buildPassagesString(batch);
 
       try {
-        String response = agent.scorePassages(query, passages);
-        List<Double> scores = parseScores(response, batch.size());
+        RerankingScores result = agent.scorePassages(query, passages);
+        List<Double> scores = result.scores();
 
         for (int j = 0; j < batch.size(); j++) {
-          scoredChunks.add(new ScoredChunk(batch.get(j), scores.get(j)));
+          double score = j < scores.size() ? Math.max(0.0, Math.min(1.0, scores.get(j))) : 0.5;
+          scoredChunks.add(new ScoredChunk(batch.get(j), score));
         }
       } catch (Exception e) {
         log.warn("Reranking batch {}-{} failed: {}, using fallback scores", i, end, e.getMessage());
@@ -124,51 +126,6 @@ public class LLMReranker {
     }
 
     return sb.toString();
-  }
-
-  /**
-   * Parses LLM response to extract scores.
-   *
-   * @param response LLM response containing comma-separated scores
-   * @param expectedCount expected number of scores
-   * @return list of parsed scores
-   */
-  private List<Double> parseScores(String response, int expectedCount) {
-    List<Double> scores = new ArrayList<>();
-
-    // Remove any leading/trailing text and extract just the numbers
-    String cleaned = response.trim();
-
-    // Try to find comma-separated numbers
-    String[] parts = cleaned.split(",");
-
-    for (String part : parts) {
-      try {
-        // Extract first number found in this part
-        String numberStr = part.trim().replaceAll("[^0-9.]", "");
-        if (!numberStr.isEmpty()) {
-          double score = Double.parseDouble(numberStr);
-          // Clamp to [0.0, 1.0]
-          score = Math.max(0.0, Math.min(1.0, score));
-          scores.add(score);
-        }
-      } catch (NumberFormatException e) {
-        log.debug("Failed to parse score from: '{}', using default 0.5", part);
-        scores.add(0.5); // Default mid-score
-      }
-    }
-
-    // Pad or truncate to expected count
-    while (scores.size() < expectedCount) {
-      scores.add(0.5); // Default mid-score for missing values
-    }
-
-    if (scores.size() > expectedCount) {
-      log.warn("Received {} scores but expected {}, truncating", scores.size(), expectedCount);
-      scores = scores.subList(0, expectedCount);
-    }
-
-    return scores;
   }
 
   /** Scored chunk with relevance score. */

@@ -18,6 +18,8 @@ export interface Citation {
   fileName: string;
   content: string;
   chunkId: string;
+  /** UUIDs of images extracted from the cited document chunk. */
+  imageIds?: string[];
 }
 
 export interface SendMessageRequest {

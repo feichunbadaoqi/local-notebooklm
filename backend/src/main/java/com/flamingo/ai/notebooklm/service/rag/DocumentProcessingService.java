@@ -2,46 +2,58 @@ package com.flamingo.ai.notebooklm.service.rag;
 
 import com.flamingo.ai.notebooklm.config.RagConfig;
 import com.flamingo.ai.notebooklm.domain.entity.Document;
+import com.flamingo.ai.notebooklm.domain.entity.DocumentImage;
 import com.flamingo.ai.notebooklm.domain.enums.DocumentStatus;
+import com.flamingo.ai.notebooklm.domain.repository.DocumentImageRepository;
 import com.flamingo.ai.notebooklm.domain.repository.DocumentRepository;
 import com.flamingo.ai.notebooklm.elasticsearch.DocumentChunk;
 import com.flamingo.ai.notebooklm.elasticsearch.DocumentChunkIndexService;
 import com.flamingo.ai.notebooklm.exception.DocumentProcessingException;
 import io.micrometer.core.annotation.Timed;
 import io.micrometer.core.instrument.MeterRegistry;
+import java.io.IOException;
 import java.io.InputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.tika.Tika;
 import org.springframework.dao.CannotAcquireLockException;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
-/** Service for processing documents: parsing with Tika, chunking, and indexing. */
+/**
+ * Orchestrates document processing: parse, chunk, embed, and index.
+ *
+ * <p>Delegates parsing and chunking to {@link DocumentChunkingStrategyRouter} so this service has
+ * no knowledge of any specific parser or chunker technology. Switching from Java-native parsing
+ * (PDFBox + Tika) to Docling requires zero changes here.
+ */
 @Service
 @RequiredArgsConstructor
 @Slf4j
 public class DocumentProcessingService {
 
   private final DocumentRepository documentRepository;
+  private final DocumentImageRepository documentImageRepository;
   private final DocumentChunkIndexService documentChunkIndexService;
   private final EmbeddingService embeddingService;
   private final DocumentMetadataExtractor metadataExtractor;
+  private final DocumentChunkingStrategyRouter strategyRouter;
   private final RagConfig ragConfig;
   private final MeterRegistry meterRegistry;
-
-  private final Tika tika = new Tika();
 
   private static final int MAX_RETRIES = 3;
   private static final long RETRY_DELAY_MS = 100;
 
   /**
-   * Processes a document asynchronously: parse, chunk, embed, and index.
+   * Processes a document asynchronously: parse, chunk, store images, embed, and index.
    *
    * @param documentId the document to process
    * @param inputStream the document content stream
@@ -51,43 +63,53 @@ public class DocumentProcessingService {
   public void processDocumentAsync(UUID documentId, InputStream inputStream) {
     try {
       Document document = getDocumentWithRetry(documentId);
-
-      // Update status to processing
       updateDocumentStatusWithRetry(documentId, DocumentStatus.PROCESSING, null, null);
 
-      // Parse document with Tika
-      String content = parseDocument(inputStream);
-      if (content == null || content.isBlank()) {
+      // --- 1. Chunk via strategy router ---
+      DocumentContext context =
+          new DocumentContext(
+              documentId,
+              document.getSession().getId(),
+              document.getFileName(),
+              document.getMimeType());
+
+      DocumentChunkingStrategy strategy = strategyRouter.route(document.getMimeType());
+      ChunkingResult result = strategy.chunkDocument(inputStream, context);
+
+      List<RawDocumentChunk> rawChunks = result.chunks();
+      String fullText = result.fullText();
+
+      if (rawChunks.isEmpty() && (fullText == null || fullText.isBlank())) {
         throw new DocumentProcessingException(documentId, "No content extracted from document");
       }
 
-      // Chunk the content
-      List<String> chunks = chunkContent(content);
-      log.info("Document {} split into {} chunks", documentId, chunks.size());
+      log.info("Document {} split into {} chunks", documentId, rawChunks.size());
 
-      // Extract document metadata
-      String documentTitle = metadataExtractor.extractTitle(content, document.getFileName());
+      // --- 2. Store extracted images ---
+      Map<Integer, String> imageIndexToId =
+          storeImages(result.extractedImages(), documentId, document.getSession().getId());
+
+      // --- 3. Extract document-level metadata ---
+      String documentTitle =
+          metadataExtractor.extractTitle(fullText != null ? fullText : "", document.getFileName());
       List<String> documentKeywords =
           ragConfig.getMetadata().isExtractKeywords()
-              ? metadataExtractor.extractKeywords(content)
+              ? metadataExtractor.extractKeywords(fullText != null ? fullText : "")
               : List.of();
       log.debug("Extracted metadata - title: {}, keywords: {}", documentTitle, documentKeywords);
 
-      // Build document chunks with metadata
+      // --- 4. Build DocumentChunk objects ---
       List<DocumentChunk> documentChunks = new ArrayList<>();
       List<String> textsToEmbed = new ArrayList<>();
-      int charOffset = 0;
 
-      for (int i = 0; i < chunks.size(); i++) {
-        String chunkContent = chunks.get(i);
+      for (RawDocumentChunk rawChunk : rawChunks) {
+        String chunkContent = rawChunk.content();
+        List<String> breadcrumb = rawChunk.sectionBreadcrumb();
 
-        // Find the section this chunk belongs to
-        String sectionTitle =
-            ragConfig.getMetadata().isExtractSections()
-                ? metadataExtractor.findChunkSection(content, charOffset)
-                : null;
+        // Use breadcrumb join as the section title for backward-compatible metadata
+        String sectionTitle = breadcrumb.isEmpty() ? null : String.join(" > ", breadcrumb);
 
-        // Extract chunk-specific keywords
+        // Chunk-specific keywords
         List<String> chunkKeywords =
             ragConfig.getMetadata().isExtractKeywords()
                 ? metadataExtractor.extractKeywords(chunkContent, 5)
@@ -102,40 +124,46 @@ public class DocumentProcessingService {
 
         textsToEmbed.add(enrichedContent);
 
+        // Map image indices → UUIDs for this chunk
+        List<String> chunkImageIds =
+            rawChunk.associatedImageIndices().stream()
+                .filter(imageIndexToId::containsKey)
+                .map(imageIndexToId::get)
+                .toList();
+
         documentChunks.add(
             DocumentChunk.builder()
-                .id(documentId + "_" + i)
+                .id(documentId + "_" + rawChunk.chunkIndex())
                 .documentId(documentId)
                 .sessionId(document.getSession().getId())
                 .fileName(document.getFileName())
-                .chunkIndex(i)
+                .chunkIndex(rawChunk.chunkIndex())
                 .content(chunkContent)
                 .documentTitle(documentTitle)
                 .sectionTitle(sectionTitle)
+                .sectionBreadcrumb(breadcrumb)
                 .keywords(chunkKeywords)
                 .enrichedContent(enrichedContent)
+                .associatedImageIds(chunkImageIds)
                 .tokenCount(estimateTokenCount(chunkContent))
                 .build());
-
-        charOffset += chunkContent.length();
       }
 
-      // Generate multiple embeddings per chunk (Stage 2.2)
-      // 1. Title embeddings (from documentTitle + sectionTitle)
-      // 2. Content embeddings (from enrichedContent)
+      // --- 5. Generate embeddings ---
       log.debug("Generating title and content embeddings for {} chunks...", textsToEmbed.size());
 
-      // Collect title texts for title embeddings
       List<String> titleTexts = new ArrayList<>();
       for (DocumentChunk chunk : documentChunks) {
+        String breadcrumbStr =
+            chunk.getSectionBreadcrumb() != null
+                ? String.join(" > ", chunk.getSectionBreadcrumb())
+                : "";
         String titleText =
             (chunk.getDocumentTitle() != null ? chunk.getDocumentTitle() : "")
-                + " "
-                + (chunk.getSectionTitle() != null ? chunk.getSectionTitle() : "");
-        titleTexts.add(titleText.trim().isEmpty() ? chunk.getFileName() : titleText.trim());
+                + (breadcrumbStr.isEmpty() ? "" : " " + breadcrumbStr);
+        titleTexts.add(titleText.isBlank() ? chunk.getFileName() : titleText.trim());
       }
 
-      // Generate both sets of embeddings
       List<List<Float>> titleEmbeddings = embeddingService.embedTexts(titleTexts);
       List<List<Float>> contentEmbeddings = embeddingService.embedTexts(textsToEmbed);
       log.debug(
@@ -143,7 +171,6 @@ public class DocumentProcessingService {
           titleEmbeddings.size(),
           contentEmbeddings.size());
 
-      // Check if embedding generation failed
       if (titleEmbeddings.isEmpty()
           || contentEmbeddings.isEmpty()
           || titleEmbeddings.size() != documentChunks.size()
@@ -155,7 +182,7 @@ public class DocumentProcessingService {
                 documentChunks.size(), titleEmbeddings.size(), contentEmbeddings.size()));
       }
 
-      // Attach embeddings to chunks and filter out any with empty embeddings
+      // --- 6. Attach embeddings and filter invalid chunks ---
       List<DocumentChunk> validChunks = new ArrayList<>();
       int skippedChunks = 0;
 
@@ -163,7 +190,6 @@ public class DocumentProcessingService {
         List<Float> titleEmbedding = titleEmbeddings.get(i);
         List<Float> contentEmbedding = contentEmbeddings.get(i);
 
-        // Skip chunks with empty or invalid embeddings
         if (titleEmbedding == null
             || titleEmbedding.isEmpty()
             || contentEmbedding == null
@@ -183,7 +209,6 @@ public class DocumentProcessingService {
         log.warn("Skipped {} chunks with failed embeddings", skippedChunks);
       }
 
-      // Fail if too many chunks were skipped (more than 10%)
       if (validChunks.isEmpty()
           || (skippedChunks > documentChunks.size() * 0.1 && documentChunks.size() > 10)) {
         throw new DocumentProcessingException(
@@ -193,7 +218,7 @@ public class DocumentProcessingService {
                 skippedChunks, documentChunks.size()));
       }
 
-      // Index only valid chunks in Elasticsearch
+      // --- 7. Index to Elasticsearch ---
       log.info("========== INDEXING DOCUMENT {} ==========", documentId);
       log.info("Session ID: {}", document.getSession().getId());
       log.info("Document file name: {}", document.getFileName());
@@ -201,11 +226,11 @@ public class DocumentProcessingService {
       for (int i = 0; i < Math.min(3, validChunks.size()); i++) {
         DocumentChunk chunk = validChunks.get(i);
         log.info(
-            "Sample chunk {}: id={}, sessionId={}, documentId={}",
+            "Sample chunk {}: id={}, sessionId={}, breadcrumb={}",
             i,
             chunk.getId(),
             chunk.getSessionId(),
-            chunk.getDocumentId());
+            chunk.getSectionBreadcrumb());
         log.info("===== CHUNK {} FULL CONTENT START =====", i);
         log.info("{}", chunk.getContent());
         log.info("===== CHUNK {} FULL CONTENT END =====", i);
@@ -214,17 +239,13 @@ public class DocumentProcessingService {
       log.info("Elasticsearch indexing complete for document {}", documentId);
       log.info("========== INDEXING COMPLETE ==========");
 
-      // Update document status to ready with actual indexed chunk count
       updateDocumentStatusWithRetry(documentId, DocumentStatus.READY, validChunks.size(), null);
-
       meterRegistry.counter("document.processing.success").increment();
       log.info("Successfully processed document: {}", documentId);
 
     } catch (Exception e) {
       log.error("Failed to process document {}: {}", documentId, e.getMessage());
       meterRegistry.counter("document.processing.failure").increment();
-
-      // Update status to failed with retry
       try {
         updateDocumentStatusWithRetry(documentId, DocumentStatus.FAILED, null, e.getMessage());
       } catch (Exception retryEx) {
@@ -261,7 +282,7 @@ public class DocumentProcessingService {
           document.markFailed(error);
         }
         documentRepository.saveAndFlush(document);
-        return; // Success
+        return;
       } catch (CannotAcquireLockException e) {
         if (attempt == MAX_RETRIES) {
           log.error("Failed to update document {} after {} retries", documentId, MAX_RETRIES);
@@ -270,7 +291,7 @@ public class DocumentProcessingService {
         log.warn(
             "SQLite lock contention on document {}, retry {}/{}", documentId, attempt, MAX_RETRIES);
         try {
-          Thread.sleep(RETRY_DELAY_MS * attempt); // Exponential backoff
+          Thread.sleep(RETRY_DELAY_MS * attempt);
         } catch (InterruptedException ie) {
           Thread.currentThread().interrupt();
           throw new RuntimeException("Interrupted during retry", ie);
@@ -279,154 +300,81 @@ public class DocumentProcessingService {
     }
   }
 
-  private String parseDocument(InputStream inputStream) {
-    try {
-      return tika.parseToString(inputStream);
-    } catch (Exception e) {
-      log.error("Tika parsing failed: {}", e.getMessage());
-      throw new DocumentProcessingException(null, "Failed to parse document: " + e.getMessage());
-    }
-  }
-
   /**
-   * Chunks content using a sliding window approach.
+   * Writes extracted images to disk and persists {@link DocumentImage} entities.
    *
-   * @param content the full document content
-   * @return list of content chunks
+   * @return mapping from image index to the persisted entity UUID (as string)
    */
-  private List<String> chunkContent(String content) {
-    List<String> chunks = new ArrayList<>();
-    int chunkSize = ragConfig.getChunking().getSize();
-    int overlap = ragConfig.getChunking().getOverlap();
-    // Hard limit to stay within embedding token limit
-    // VERY conservative for dense CJK: 1.0 chars/token, target ~3500 tokens, leave room for
-    // enrichment
-    int maxCharsPerChunk = 3500; // ~3500 tokens raw, enrichment adds ~500, total ~4000 < 5000 limit
+  private Map<Integer, String> storeImages(
+      List<ExtractedImage> images, UUID documentId, UUID sessionId) {
+    Map<Integer, String> indexToId = new HashMap<>();
+    if (images.isEmpty() || !ragConfig.getImageStorage().isEnabled()) {
+      return indexToId;
+    }
 
-    // Split by paragraphs first for better semantic boundaries
-    String[] paragraphs = content.split("\\n\\n+");
-    StringBuilder currentChunk = new StringBuilder();
-    int currentTokens = 0;
+    String basePath = ragConfig.getImageStorage().getBasePath();
+    long maxBytes = ragConfig.getImageStorage().getMaxFileSizeBytes();
 
-    for (String paragraph : paragraphs) {
-      // If a single paragraph exceeds max size, split it by sentences
-      if (paragraph.length() > maxCharsPerChunk) {
-        // First, save any existing chunk content
-        if (currentChunk.length() > 0) {
-          chunks.add(currentChunk.toString().trim());
-          currentChunk = new StringBuilder();
-          currentTokens = 0;
-        }
-        // Split large paragraph into smaller pieces
-        chunks.addAll(splitLargeParagraph(paragraph, maxCharsPerChunk, overlap));
+    for (ExtractedImage image : images) {
+      if (image.data() == null || image.data().length == 0) {
+        continue;
+      }
+      if (image.data().length > maxBytes) {
+        log.warn(
+            "Skipping oversized image {} ({} bytes) for document {}",
+            image.index(),
+            image.data().length,
+            documentId);
         continue;
       }
 
-      int paragraphTokens = estimateTokenCount(paragraph);
+      String extension = extensionForMimeType(image.mimeType());
+      Path dir = Path.of(basePath, sessionId.toString(), documentId.toString());
+      Path filePath = dir.resolve(image.index() + "." + extension);
 
-      // Case 2: Token limit check
-      if (currentTokens + paragraphTokens > chunkSize && currentChunk.length() > 0) {
-        // Save current chunk
-        chunks.add(currentChunk.toString().trim());
+      try {
+        Files.createDirectories(dir);
+        Files.write(filePath, image.data());
 
-        // Start new chunk with overlap
-        String overlapText = getOverlapText(currentChunk.toString(), overlap);
-        currentChunk = new StringBuilder(overlapText);
-        currentTokens = estimateTokenCount(overlapText);
+        DocumentImage entity =
+            DocumentImage.builder()
+                .documentId(documentId)
+                .sessionId(sessionId)
+                .imageIndex(image.index())
+                .mimeType(image.mimeType())
+                .altText(image.altText() != null ? image.altText() : "")
+                .filePath(filePath.toAbsolutePath().toString())
+                .width(image.width())
+                .height(image.height())
+                .build();
+
+        DocumentImage saved = documentImageRepository.save(entity);
+        indexToId.put(image.index(), saved.getId().toString());
+        log.debug("Stored image {} for document {} at {}", image.index(), documentId, filePath);
+      } catch (IOException e) {
+        log.warn(
+            "Failed to store image {} for document {}: {}",
+            image.index(),
+            documentId,
+            e.getMessage());
       }
-
-      // Case 3: Character limit check (FIXED to prevent violations)
-      if (currentChunk.length() + paragraph.length() > maxCharsPerChunk
-          && currentChunk.length() > 0) {
-        chunks.add(currentChunk.toString().trim());
-        String overlapText = getOverlapText(currentChunk.toString(), overlap);
-        currentChunk = new StringBuilder(overlapText);
-        currentTokens = estimateTokenCount(overlapText);
-
-        // CRITICAL FIX: Re-check if paragraph still exceeds limit with overlap
-        // This prevents chunks from exceeding maxCharsPerChunk when overlap + paragraph > limit
-        // (e.g., 200-char overlap + 3400-char dense CJK paragraph = 3600 chars > 3500 limit)
-        if (currentChunk.length() + paragraph.length() > maxCharsPerChunk) {
-          // Split this paragraph since overlap + paragraph > limit
-          if (currentChunk.length() > 0) {
-            chunks.add(currentChunk.toString().trim());
-            currentChunk = new StringBuilder();
-            currentTokens = 0;
-          }
-          chunks.addAll(splitLargeParagraph(paragraph, maxCharsPerChunk, overlap));
-          continue; // Don't append below - paragraph was already split and added
-        }
-      }
-
-      currentChunk.append(paragraph).append("\n\n");
-      currentTokens += paragraphTokens;
     }
 
-    // Add final chunk
-    if (currentChunk.length() > 0) {
-      chunks.add(currentChunk.toString().trim());
-    }
-
-    return chunks;
+    return indexToId;
   }
 
-  /**
-   * Splits a large paragraph into smaller chunks by sentences.
-   *
-   * @param paragraph the large paragraph to split
-   * @param maxChars maximum characters per chunk
-   * @param overlap overlap in tokens
-   * @return list of smaller chunks
-   */
-  private List<String> splitLargeParagraph(String paragraph, int maxChars, int overlap) {
-    List<String> chunks = new ArrayList<>();
-
-    // Split by sentences (period, question mark, exclamation followed by space)
-    String[] sentences = paragraph.split("(?<=[.!?])\\s+");
-    StringBuilder currentChunk = new StringBuilder();
-
-    for (String sentence : sentences) {
-      // If a single sentence is too long, split by character limit
-      if (sentence.length() > maxChars) {
-        if (currentChunk.length() > 0) {
-          chunks.add(currentChunk.toString().trim());
-          currentChunk = new StringBuilder();
-        }
-        // Force split long sentence
-        for (int i = 0; i < sentence.length(); i += maxChars - 100) {
-          int end = Math.min(i + maxChars - 100, sentence.length());
-          chunks.add(sentence.substring(i, end));
-        }
-        continue;
-      }
-
-      if (currentChunk.length() + sentence.length() > maxChars && currentChunk.length() > 0) {
-        chunks.add(currentChunk.toString().trim());
-        String overlapText = getOverlapText(currentChunk.toString(), overlap);
-        currentChunk = new StringBuilder(overlapText);
-      }
-
-      currentChunk.append(sentence).append(" ");
+  private String extensionForMimeType(String mimeType) {
+    if (mimeType == null) {
+      return "png";
     }
-
-    if (currentChunk.length() > 0) {
-      chunks.add(currentChunk.toString().trim());
-    }
-
-    return chunks;
+    return switch (mimeType.toLowerCase()) {
+      case "image/jpeg", "image/jpg" -> "jpg";
+      case "image/gif" -> "gif";
+      case "image/webp" -> "webp";
+      default -> "png";
+    };
   }
 
-  private String getOverlapText(String text, int overlapTokens) {
-    String[] words = text.split("\\s+");
-    int wordsToKeep = Math.min(overlapTokens, words.length);
-    StringBuilder overlap = new StringBuilder();
-    for (int i = words.length - wordsToKeep; i < words.length; i++) {
-      overlap.append(words[i]).append(" ");
-    }
-    return overlap.toString();
-  }
-
-  /** Estimates token count (roughly 4 characters per token for English). */
   private int estimateTokenCount(String text) {
     return text.length() / 4;
   }

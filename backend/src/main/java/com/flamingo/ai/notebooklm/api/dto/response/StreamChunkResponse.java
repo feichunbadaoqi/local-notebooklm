@@ -1,5 +1,6 @@
 package com.flamingo.ai.notebooklm.api.dto.response;
 
+import java.util.List;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -23,11 +24,17 @@ public class StreamChunkResponse {
     return StreamChunkResponse.builder().eventType("token").data(new TokenData(content)).build();
   }
 
-  /** Creates a citation event. */
+  /** Creates a citation event without image IDs. */
   public static StreamChunkResponse citation(String source, Integer page, String text) {
+    return citation(source, page, text, List.of());
+  }
+
+  /** Creates a citation event with associated image IDs. */
+  public static StreamChunkResponse citation(
+      String source, Integer page, String text, List<String> imageIds) {
     return StreamChunkResponse.builder()
         .eventType("citation")
-        .data(new CitationData(source, page, text))
+        .data(new CitationData(source, page, text, imageIds != null ? imageIds : List.of()))
         .build();
   }
 
@@ -61,6 +68,9 @@ public class StreamChunkResponse {
     private String source;
     private Integer page;
     private String text;
+
+    /** UUIDs of {@code DocumentImage} entities associated with the cited chunk. */
+    private List<String> imageIds;
   }
 
   /** Done event data. */

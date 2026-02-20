@@ -41,6 +41,13 @@ public class DocumentChunk implements AbstractElasticsearchIndexService.ScoredDo
   @Builder.Default private List<String> keywords = List.of();
   private String enrichedContent;
 
+  // Structure-aware chunking fields (Phase 2)
+  /** Hierarchical breadcrumb path to the section, e.g. ["Doc Title", "Chapter", "Sub"]. */
+  @Builder.Default private List<String> sectionBreadcrumb = List.of();
+
+  /** UUIDs of {@code DocumentImage} entities associated with this chunk. */
+  @Builder.Default private List<String> associatedImageIds = List.of();
+
   // Relevance score from search results (set by search methods)
   @Builder.Default private Double relevanceScore = 0.0;
 }

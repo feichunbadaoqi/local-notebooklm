@@ -9,6 +9,7 @@ import io.micrometer.core.instrument.MeterRegistry;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
@@ -47,7 +48,7 @@ public class HybridSearchService {
    */
   @Timed(value = "rag.search", description = "Time for hybrid search")
   public List<DocumentChunk> search(UUID sessionId, String query, InteractionMode mode) {
-    return searchWithDetails(sessionId, query, mode).finalResults();
+    return searchWithDetails(sessionId, query, mode, List.of()).finalResults();
   }
 
   /**
@@ -61,6 +62,23 @@ public class HybridSearchService {
    */
   @Timed(value = "rag.searchdetails", description = "Time for hybrid search with details")
   public SearchResult searchWithDetails(UUID sessionId, String query, InteractionMode mode) {
+    return searchWithDetails(sessionId, query, mode, List.of());
+  }
+
+  /**
+   * Performs hybrid search with optional source anchoring for follow-up queries. When
+   * anchorDocumentIds is non-empty, applies an additive RRF score boost to chunks from those
+   * documents, helping follow-up queries stay within the topic scope of the previous response.
+   *
+   * @param sessionId the session to search within
+   * @param query the search query
+   * @param mode the interaction mode (determines number of results)
+   * @param anchorDocumentIds document IDs to boost in RRF scoring (empty = no anchoring)
+   * @return SearchResult with vector, BM25, and final results
+   */
+  @Timed(value = "rag.searchdetails.anchored", description = "Time for anchored hybrid search")
+  public SearchResult searchWithDetails(
+      UUID sessionId, String query, InteractionMode mode, List<String> anchorDocumentIds) {
     log.debug("Starting hybrid search for session {} with query: {}", sessionId, query);
     int topK = mode.getRetrievalCount();
     int candidateMultiplier = ragConfig.getRetrieval().getCandidatesMultiplier();
@@ -89,7 +107,7 @@ public class HybridSearchService {
     List<DocumentChunk> keywordResults =
         documentChunkIndexService.keywordSearch(sessionId, query, topK * candidateMultiplier);
     List<DocumentChunk> hybridResults =
-        applyRrf(vectorResults, keywordResults, topK * candidateMultiplier);
+        applyRrf(vectorResults, keywordResults, topK * candidateMultiplier, anchorDocumentIds);
     log.debug("Application-side RRF returned {} results", hybridResults.size());
 
     // Apply LLM reranking
@@ -132,24 +150,29 @@ public class HybridSearchService {
   }
 
   /**
-   * Applies Reciprocal Rank Fusion to combine results from multiple retrievers.
+   * Applies Reciprocal Rank Fusion to combine results from multiple retrievers, with optional
+   * source anchoring for follow-up queries.
    *
-   * <p>RRF score = Σ 1/(k + rank_i) for each retriever. This is the primary hybrid fusion strategy,
-   * replacing Elasticsearch's native RRF retriever which requires a commercial license.
+   * <p>RRF score = sum(1/(k + rank_i)) for each retriever. Chunks from anchorDocumentIds receive an
+   * additional additive boost to surface them above unrelated documents in follow-up queries.
    */
   private List<DocumentChunk> applyRrf(
-      List<DocumentChunk> vectorResults, List<DocumentChunk> keywordResults, int topK) {
+      List<DocumentChunk> vectorResults,
+      List<DocumentChunk> keywordResults,
+      int topK,
+      List<String> anchorDocumentIds) {
 
     Map<String, Double> rrfScores = new HashMap<>();
     Map<String, DocumentChunk> chunkMap = new HashMap<>();
     int rrfK = ragConfig.getRetrieval().getRrfK();
 
     log.info(
-        "[RRF] input: vectorResults={} keywordResults={} topK={} rrfK={}",
+        "[RRF] input: vectorResults={} keywordResults={} topK={} rrfK={} anchorDocs={}",
         vectorResults.size(),
         keywordResults.size(),
         topK,
-        rrfK);
+        rrfK,
+        anchorDocumentIds.size());
 
     // Score from vector search
     for (int i = 0; i < vectorResults.size(); i++) {
@@ -178,6 +201,25 @@ public class HybridSearchService {
     }
 
     log.info("[RRF] unique chunks after merge: {}", rrfScores.size());
+
+    // Apply source anchoring boost for follow-up queries
+    boolean anchoringEnabled = ragConfig.getRetrieval().isSourceAnchoringEnabled();
+    if (anchoringEnabled && !anchorDocumentIds.isEmpty()) {
+      Set<String> anchorSet = Set.copyOf(anchorDocumentIds);
+      double boost = ragConfig.getRetrieval().getSourceAnchoringBoost();
+      int boostedCount = 0;
+      for (Map.Entry<String, DocumentChunk> entry : chunkMap.entrySet()) {
+        DocumentChunk chunk = entry.getValue();
+        if (chunk.getDocumentId() != null && anchorSet.contains(chunk.getDocumentId().toString())) {
+          rrfScores.merge(entry.getKey(), boost, Double::sum);
+          boostedCount++;
+        }
+      }
+      log.info(
+          "[RRF] source anchoring: boosted {} chunks from {} anchor docs",
+          boostedCount,
+          anchorSet.size());
+    }
 
     // Sort by RRF score and return top K
     List<DocumentChunk> results =

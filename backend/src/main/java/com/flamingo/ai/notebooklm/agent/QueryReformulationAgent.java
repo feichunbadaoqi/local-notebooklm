@@ -18,7 +18,7 @@ public interface QueryReformulationAgent {
         Task: Analyze the user's new query in the context of their conversation history.
 
         Rules:
-        1. If the query is standalone (self-contained), return needsReformulation=false
+        1. If the query is standalone (self-contained), return needsReformulation=false, isFollowUp=false
         2. If it references previous context (pronouns like "it"/"they", implicit topics,
            follow-ups like "what about X"), return needsReformulation=true
         3. When reformulating, create a self-contained query incorporating relevant context
@@ -26,27 +26,41 @@ public interface QueryReformulationAgent {
         5. Preserve the user's intent and question type
         6. Only include context that is directly relevant to answering the query
 
+        isFollowUp rules:
+        - Set isFollowUp=true ONLY when the query specifically continues the topic of the
+          MOST RECENT assistant response shown in "Most Recent Exchange"
+        - Set isFollowUp=false when the query is standalone, references earlier (not the
+          immediately preceding) exchange, or shifts to a clearly different topic
+
         Examples:
-        - Standalone: "What is quantum computing?" → needsReformulation=false, query unchanged
+        - Standalone: "What is quantum computing?" → needsReformulation=false, isFollowUp=false
         - Follow-up: "What about chapter 3?" (after discussing climate change)
-          → needsReformulation=true, query="What does chapter 3 say about climate change?"
-        - Pronoun: "How efficient are they?" (after discussing solar panels)
-          → needsReformulation=true, query="How efficient are solar panels?"
+          → needsReformulation=true, isFollowUp=true, query="What does chapter 3 say about climate change?"
+        - Pronoun continuing most recent response: "How efficient are they?" (after solar panels answer)
+          → needsReformulation=true, isFollowUp=true, query="How efficient are solar panels?"
+        - Topic shift: "Now tell me about Topic B" (after discussing Topic A)
+          → needsReformulation=false, isFollowUp=false
 
         Return your analysis as JSON with these fields:
         - needsReformulation (boolean)
+        - isFollowUp (boolean)
         - query (string) - original if standalone, reformulated if not
         - reasoning (string) - brief explanation of your decision
         """)
   @UserMessage(
       """
-        Conversation History:
+        Most Recent Exchange (the immediately preceding Q&A turn):
+        {{recentExchange}}
+
+        Broader Conversation History (for additional context):
         {{conversationHistory}}
 
         New User Query: {{query}}
 
-        Analyze and return JSON with needsReformulation, query, and reasoning fields.
+        Analyze and return JSON with needsReformulation, isFollowUp, query, and reasoning fields.
         """)
   QueryReformulationResult reformulate(
-      @V("conversationHistory") String conversationHistory, @V("query") String query);
+      @V("recentExchange") String recentExchange,
+      @V("conversationHistory") String conversationHistory,
+      @V("query") String query);
 }

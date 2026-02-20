@@ -6,6 +6,7 @@ import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
 import com.flamingo.ai.notebooklm.agent.CrossEncoderRerankerAgent;
+import com.flamingo.ai.notebooklm.agent.dto.RerankingScores;
 import com.flamingo.ai.notebooklm.elasticsearch.DocumentChunk;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -49,13 +50,12 @@ class LLMRerankerTest {
 
     String query = "machine learning";
 
-    // Mock LLM to return scores in order: 0.3, 0.9, 0.6
-    when(agent.scorePassages(anyString(), anyString())).thenReturn("0.3,0.9,0.6");
+    when(agent.scorePassages(anyString(), anyString()))
+        .thenReturn(new RerankingScores(List.of(0.3, 0.9, 0.6)));
 
     List<LLMReranker.ScoredChunk> results = reranker.rerank(query, candidates, 3);
 
     assertThat(results).hasSize(3);
-    // Should be sorted by score descending: 0.9, 0.6, 0.3
     assertThat(results.get(0).score()).isEqualTo(0.9);
     assertThat(results.get(1).score()).isEqualTo(0.6);
     assertThat(results.get(2).score()).isEqualTo(0.3);
@@ -68,7 +68,8 @@ class LLMRerankerTest {
     String query = "test query";
 
     when(agent.scorePassages(anyString(), anyString()))
-        .thenReturn("0.9,0.8,0.7,0.6,0.5,0.4,0.3,0.2,0.1,0.05");
+        .thenReturn(
+            new RerankingScores(List.of(0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1, 0.05)));
 
     List<LLMReranker.ScoredChunk> results = reranker.rerank(query, candidates, 5);
 
@@ -96,34 +97,36 @@ class LLMRerankerTest {
     List<DocumentChunk> candidates = createChunks(12); // Will need 3 batches (5, 5, 2)
     String query = "test query";
 
-    // Mock responses for 3 batches
     when(agent.scorePassages(anyString(), anyString()))
-        .thenReturn("0.9,0.8,0.7,0.6,0.5") // Batch 1
-        .thenReturn("0.4,0.3,0.2,0.1,0.05") // Batch 2
-        .thenReturn("0.95,0.85"); // Batch 3
+        .thenReturn(new RerankingScores(List.of(0.9, 0.8, 0.7, 0.6, 0.5)))
+        .thenReturn(new RerankingScores(List.of(0.4, 0.3, 0.2, 0.1, 0.05)))
+        .thenReturn(new RerankingScores(List.of(0.95, 0.85)));
 
     List<LLMReranker.ScoredChunk> results = reranker.rerank(query, candidates, 12);
 
     assertThat(results).hasSize(12);
-    // Should be sorted, so highest scores first
     assertThat(results.get(0).score()).isEqualTo(0.95);
     assertThat(results.get(1).score()).isEqualTo(0.9);
   }
 
   @Test
-  @DisplayName("Should handle malformed LLM response gracefully")
-  void shouldHandleMalformedLlmResponseGracefully() {
-    List<DocumentChunk> candidates = createChunks(3);
+  @DisplayName("Should pad missing scores with 0.5 when fewer scores than candidates")
+  void shouldPadMissingScoresWithDefault() {
+    List<DocumentChunk> candidates = createChunks(5);
     String query = "test query";
 
-    // LLM returns invalid format
-    when(agent.scorePassages(anyString(), anyString())).thenReturn("invalid response");
+    // Agent returns only 3 scores for 5 candidates
+    when(agent.scorePassages(anyString(), anyString()))
+        .thenReturn(new RerankingScores(List.of(0.9, 0.8, 0.7)));
 
-    List<LLMReranker.ScoredChunk> results = reranker.rerank(query, candidates, 3);
+    List<LLMReranker.ScoredChunk> results = reranker.rerank(query, candidates, 5);
 
-    // Should default to 0.5 for unparseable scores
-    assertThat(results).hasSize(3);
-    assertThat(results.get(0).score()).isEqualTo(0.5);
+    assertThat(results).hasSize(5);
+    assertThat(results.get(0).score()).isEqualTo(0.9);
+    assertThat(results.get(1).score()).isEqualTo(0.8);
+    assertThat(results.get(2).score()).isEqualTo(0.7);
+    assertThat(results.get(3).score()).isEqualTo(0.5);
+    assertThat(results.get(4).score()).isEqualTo(0.5);
   }
 
   @Test
@@ -132,8 +135,8 @@ class LLMRerankerTest {
     List<DocumentChunk> candidates = createChunks(3);
     String query = "test query";
 
-    // LLM returns out-of-range scores
-    when(agent.scorePassages(anyString(), anyString())).thenReturn("1.5,-0.3,0.7");
+    when(agent.scorePassages(anyString(), anyString()))
+        .thenReturn(new RerankingScores(List.of(1.5, -0.3, 0.7)));
 
     List<LLMReranker.ScoredChunk> results = reranker.rerank(query, candidates, 3);
 
@@ -144,44 +147,22 @@ class LLMRerankerTest {
   }
 
   @Test
-  @DisplayName("Should handle partial score parsing")
-  void shouldHandlePartialScoreParsing() {
-    List<DocumentChunk> candidates = createChunks(5);
-    String query = "test query";
-
-    // LLM returns only 3 scores for 5 candidates
-    when(agent.scorePassages(anyString(), anyString())).thenReturn("0.9,0.8,0.7");
-
-    List<LLMReranker.ScoredChunk> results = reranker.rerank(query, candidates, 5);
-
-    // Should pad missing scores with 0.5
-    assertThat(results).hasSize(5);
-    assertThat(results.get(0).score()).isEqualTo(0.9);
-    assertThat(results.get(1).score()).isEqualTo(0.8);
-    assertThat(results.get(2).score()).isEqualTo(0.7);
-    assertThat(results.get(3).score()).isEqualTo(0.5); // Padded
-    assertThat(results.get(4).score()).isEqualTo(0.5); // Padded
-  }
-
-  @Test
   @DisplayName("Should handle LLM exception with fallback scores")
   void shouldHandleLlmExceptionWithFallbackScores() {
     List<DocumentChunk> candidates = createChunks(3);
-    candidates.get(0).setRelevanceScore(0.03); // RRF score
+    candidates.get(0).setRelevanceScore(0.03);
     candidates.get(1).setRelevanceScore(0.02);
     candidates.get(2).setRelevanceScore(0.01);
 
     String query = "test query";
 
-    // LLM throws exception
     when(agent.scorePassages(anyString(), anyString()))
         .thenThrow(new RuntimeException("LLM API error"));
 
     List<LLMReranker.ScoredChunk> results = reranker.rerank(query, candidates, 3);
 
-    // Should use fallback scores (RRF * 10 or 0.5)
     assertThat(results).hasSize(3);
-    assertThat(results.get(0).score()).isGreaterThan(0.0); // Fallback applied
+    assertThat(results.get(0).score()).isGreaterThan(0.0);
   }
 
   @Test
@@ -195,24 +176,6 @@ class LLMRerankerTest {
     candidates.get(2).setRelevanceScore(0.5);
 
     String query = "test query";
-
-    List<LLMReranker.ScoredChunk> results = reranker.rerank(query, candidates, 3);
-
-    // Should return candidates as-is with their RRF scores
-    assertThat(results).hasSize(3);
-    assertThat(results.get(0).score()).isEqualTo(0.9);
-    assertThat(results.get(1).score()).isEqualTo(0.7);
-    assertThat(results.get(2).score()).isEqualTo(0.5);
-  }
-
-  @Test
-  @DisplayName("Should handle scores with extra whitespace")
-  void shouldHandleScoresWithExtraWhitespace() {
-    List<DocumentChunk> candidates = createChunks(3);
-    String query = "test query";
-
-    // LLM returns scores with whitespace
-    when(agent.scorePassages(anyString(), anyString())).thenReturn("  0.9 ,  0.7  , 0.5  ");
 
     List<LLMReranker.ScoredChunk> results = reranker.rerank(query, candidates, 3);
 

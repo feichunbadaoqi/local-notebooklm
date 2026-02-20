@@ -154,6 +154,10 @@ public class DocumentChunkIndexService extends AbstractElasticsearchIndexService
                     TextProperty.of(
                         t -> t.analyzer(textAnalyzer).searchAnalyzer(textSearchAnalyzer)))));
 
+    // Structure-aware chunking fields (Phase 2)
+    properties.put("sectionBreadcrumb", Property.of(p -> p.keyword(k -> k)));
+    properties.put("associatedImageIds", Property.of(p -> p.keyword(k -> k)));
+
     return properties;
   }
 
@@ -187,6 +191,13 @@ public class DocumentChunkIndexService extends AbstractElasticsearchIndexService
     if (chunk.getEnrichedContent() != null) {
       document.put("enrichedContent", chunk.getEnrichedContent());
     }
+    // Structure-aware chunking fields
+    if (chunk.getSectionBreadcrumb() != null && !chunk.getSectionBreadcrumb().isEmpty()) {
+      document.put("sectionBreadcrumb", chunk.getSectionBreadcrumb());
+    }
+    if (chunk.getAssociatedImageIds() != null && !chunk.getAssociatedImageIds().isEmpty()) {
+      document.put("associatedImageIds", chunk.getAssociatedImageIds());
+    }
     return document;
   }
 
@@ -216,6 +227,13 @@ public class DocumentChunkIndexService extends AbstractElasticsearchIndexService
     }
     if (source.get("enrichedContent") != null) {
       builder.enrichedContent((String) source.get("enrichedContent"));
+    }
+    // Structure-aware chunking fields
+    if (source.get("sectionBreadcrumb") != null) {
+      builder.sectionBreadcrumb((List<String>) source.get("sectionBreadcrumb"));
+    }
+    if (source.get("associatedImageIds") != null) {
+      builder.associatedImageIds((List<String>) source.get("associatedImageIds"));
     }
 
     return builder.build();
@@ -332,144 +350,6 @@ public class DocumentChunkIndexService extends AbstractElasticsearchIndexService
   /** Indexes document chunks (convenience method). */
   public void indexChunks(List<DocumentChunk> chunks) {
     indexDocuments(chunks);
-  }
-
-  /**
-   * Performs hybrid search using Elasticsearch's native RRF retriever.
-   *
-   * @deprecated Elasticsearch's native RRF (Reciprocal Rank Fusion) retriever requires a commercial
-   *     license (Platinum/Enterprise). Using it on the basic/free license throws a {@code
-   *     security_exception}. Use application-side RRF instead: call {@link #vectorSearch(UUID,
-   *     List, int)} and {@link #keywordSearch(UUID, String, int)} separately, then fuse results in
-   *     the service layer.
-   * @param sessionId Session filter
-   * @param query Text query for BM25
-   * @param queryEmbedding Vector for kNN searches
-   * @param topK Number of results to return
-   * @return Top K documents ranked by RRF fusion
-   */
-  @Deprecated
-  public List<DocumentChunk> hybridSearchWithRRF(
-      UUID sessionId, String query, List<Float> queryEmbedding, int topK) {
-    log.debug("hybridSearchWithRRF for session {}, topK={}", sessionId, topK);
-
-    try {
-      String requestJson =
-          String.format(
-              """
-              {
-                "retriever": {
-                  "rrf": {
-                    "retrievers": [
-                      {
-                        "standard": {
-                          "query": {
-                            "bool": {
-                              "filter": [
-                                { "term": { "sessionId": "%s" } }
-                              ],
-                              "must": [
-                                {
-                                  "multi_match": {
-                                    "query": "%s",
-                                    "fields": ["documentTitle^3.0", "sectionTitle^2.0", "fileName^1.5", "content^1.0"],
-                                    "type": "best_fields",
-                                    "tie_breaker": 0.3
-                                  }
-                                }
-                              ]
-                            }
-                          }
-                        }
-                      },
-                      {
-                        "knn": {
-                          "field": "titleEmbedding",
-                          "query_vector": %s,
-                          "k": %d,
-                          "num_candidates": %d,
-                          "filter": [
-                            { "term": { "sessionId": "%s" } }
-                          ]
-                        }
-                      },
-                      {
-                        "knn": {
-                          "field": "contentEmbedding",
-                          "query_vector": %s,
-                          "k": %d,
-                          "num_candidates": %d,
-                          "filter": [
-                            { "term": { "sessionId": "%s" } }
-                          ]
-                        }
-                      }
-                    ],
-                    "rank_constant": 60,
-                    "rank_window_size": 50
-                  }
-                },
-                "size": %d
-              }
-              """,
-              sessionId.toString(),
-              escapeJson(query),
-              embeddingVectorToJson(queryEmbedding),
-              topK,
-              topK * 2,
-              sessionId.toString(),
-              embeddingVectorToJson(queryEmbedding),
-              topK,
-              topK * 2,
-              sessionId.toString(),
-              topK);
-
-      var response =
-          elasticsearchClient.search(
-              s -> s.index(indexName).withJson(new java.io.StringReader(requestJson)), Map.class);
-
-      List<DocumentChunk> results = new java.util.ArrayList<>();
-      for (var hit : response.hits().hits()) {
-        Map<String, Object> source = hit.source();
-        if (source != null) {
-          source.put("id", hit.id());
-          DocumentChunk chunk = convertFromDocument(source);
-          chunk.setRelevanceScore(hit.score() != null ? hit.score() : 0.0);
-          results.add(chunk);
-        }
-      }
-
-      log.debug("Hybrid search with RRF returned {} results", results.size());
-      return results;
-
-    } catch (Exception e) {
-      log.error("Hybrid search with RRF failed for session {}", sessionId, e);
-      // Fallback to legacy vector search
-      log.warn("Falling back to legacy vector search");
-      return vectorSearch(sessionId, queryEmbedding, topK);
-    }
-  }
-
-  /** Escapes special characters in JSON strings. */
-  private String escapeJson(String str) {
-    return str.replace("\\", "\\\\")
-        .replace("\"", "\\\"")
-        .replace("\n", "\\n")
-        .replace("\r", "\\r")
-        .replace("\t", "\\t");
-  }
-
-  /** Converts embedding vector to JSON array string. */
-  private String embeddingVectorToJson(List<Float> vector) {
-    StringBuilder sb = new StringBuilder("[");
-    for (int i = 0; i < vector.size(); i++) {
-      if (i > 0) {
-        sb.append(",");
-      }
-      sb.append(vector.get(i));
-    }
-    sb.append("]");
-    return sb.toString();
   }
 
   /** Convenience method: vector search filtered by session. */

@@ -390,11 +390,17 @@ public abstract class AbstractElasticsearchIndexService<T>
           contentPreview = s.length() > 120 ? s.substring(0, 120) + "..." : s;
         }
         Object d = src.get("documentId");
-        if (d != null) docId = d.toString();
+        if (d != null) {
+          docId = d.toString();
+        }
         Object f = src.get("fileName");
-        if (f != null) fileName = f.toString();
+        if (f != null) {
+          fileName = f.toString();
+        }
         Object ci = src.get("chunkIndex");
-        if (ci instanceof Number n) chunkIndex = n.intValue();
+        if (ci instanceof Number n) {
+          chunkIndex = n.intValue();
+        }
       }
       log.info(
           "  [{}] rank={} id={} score={} doc={} file='{}' chunk={} content='{}'",

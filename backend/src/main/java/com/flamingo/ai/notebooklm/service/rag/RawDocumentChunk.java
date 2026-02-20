@@ -1,0 +1,19 @@
+package com.flamingo.ai.notebooklm.service.rag;
+
+import java.util.List;
+
+/**
+ * A single chunk produced by a {@link DocumentChunker}, before embedding or Elasticsearch indexing.
+ *
+ * @param content the text content of the chunk (may include Markdown tables inline)
+ * @param sectionBreadcrumb hierarchical path to the section containing this chunk, e.g. {@code
+ *     ["Doc Title", "Chapter 2", "Section 2.1"]}; empty list for unstructured content
+ * @param chunkIndex sequential position of this chunk within the document (0-based)
+ * @param associatedImageIndices indices into {@link ParsedDocument#images()} whose approximate
+ *     offset falls within the character range covered by this chunk
+ */
+public record RawDocumentChunk(
+    String content,
+    List<String> sectionBreadcrumb,
+    int chunkIndex,
+    List<Integer> associatedImageIndices) {}

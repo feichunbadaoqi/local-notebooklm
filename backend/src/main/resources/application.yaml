@@ -85,6 +85,8 @@ rag:
     top-k: 6
     rrf-k: 60  # Reciprocal Rank Fusion constant
     candidates-multiplier: 3  # Fetch 3x candidates for hybrid search
+    source-anchoring-enabled: true   # Boost chunks from previous response docs on follow-ups
+    source-anchoring-boost: 0.3      # Additive RRF boost for anchor document chunks
   reranking:
     # LLM-based reranking via GPT-4o-mini (replaces Elasticsearch cross-encoder which requires Platinum license)
     llm:
@@ -107,9 +109,14 @@ rag:
     history-window: 5          # Number of relevant messages to return
     candidate-pool-multiplier: 4  # Fetch 4x more candidates for hybrid search
     max-query-length: 500      # Maximum length of reformulated queries
+    min-recent-messages: 2     # Always fetch these from DB for recency-biased context
   verification:
     enabled: true              # Enable answer verification (Stage 4)
     support-threshold: 0.7     # Minimum score (0.0-1.0) for claim to be considered supported
+  image-storage:
+    base-path: data/images         # Root directory for images extracted from documents
+    enabled: true                  # Set to false to skip image extraction
+    max-file-size-bytes: 10485760  # 10 MB per image limit
 
 # ============ Interaction Modes ============
 modes:

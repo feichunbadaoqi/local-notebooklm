@@ -98,9 +98,7 @@ class HybridSearchServiceTest {
             .thenAnswer(
                 invocation -> {
                   List<DocumentChunk> chunks = invocation.getArgument(1);
-                  return chunks.stream()
-                      .map(c -> new LLMReranker.ScoredChunk(c, 0.8))
-                      .toList();
+                  return chunks.stream().map(c -> new LLMReranker.ScoredChunk(c, 0.8)).toList();
                 });
         when(diversityReranker.rerank(any(), anyInt()))
             .thenAnswer(invocation -> invocation.getArgument(0));
@@ -137,9 +135,7 @@ class HybridSearchServiceTest {
             .thenAnswer(
                 invocation -> {
                   List<DocumentChunk> chunks = invocation.getArgument(1);
-                  return chunks.stream()
-                      .map(c -> new LLMReranker.ScoredChunk(c, 0.7))
-                      .toList();
+                  return chunks.stream().map(c -> new LLMReranker.ScoredChunk(c, 0.7)).toList();
                 });
         when(diversityReranker.rerank(any(), anyInt()))
             .thenAnswer(invocation -> invocation.getArgument(0));
@@ -196,6 +192,111 @@ class HybridSearchServiceTest {
 
         assertThat(results).containsExactly(keywordChunk);
         verify(documentChunkIndexService).keywordSearch(eq(sessionId), anyString(), anyInt());
+      }
+    }
+  }
+
+  @Nested
+  @DisplayName("searchWithDetails anchored")
+  class AnchoredSearchTests {
+
+    @Test
+    @DisplayName("should produce same results when anchor list is empty")
+    void shouldProduceSameResults_whenAnchorListEmpty() {
+      try (var timerMock =
+          org.mockito.Mockito.mockStatic(Timer.class, org.mockito.Mockito.CALLS_REAL_METHODS)) {
+        timerMock.when(() -> Timer.start(meterRegistry)).thenReturn(timerSample);
+
+        List<Float> embedding = List.of(0.1f, 0.2f, 0.3f);
+        DocumentChunk chunk1 = createChunk("c1", "Content 1");
+        DocumentChunk chunk2 = createChunk("c2", "Content 2");
+
+        when(embeddingService.embedQuery(anyString())).thenReturn(embedding);
+        when(documentChunkIndexService.vectorSearch(eq(sessionId), eq(embedding), anyInt()))
+            .thenReturn(List.of(chunk1, chunk2));
+        when(documentChunkIndexService.keywordSearch(eq(sessionId), anyString(), anyInt()))
+            .thenReturn(List.of(chunk1, chunk2));
+        when(llmReranker.rerank(anyString(), any(), anyInt()))
+            .thenAnswer(
+                invocation -> {
+                  List<DocumentChunk> chunks = invocation.getArgument(1);
+                  return chunks.stream().map(c -> new LLMReranker.ScoredChunk(c, 0.8)).toList();
+                });
+        when(diversityReranker.rerank(any(), anyInt()))
+            .thenAnswer(invocation -> invocation.getArgument(0));
+
+        HybridSearchService.SearchResult noAnchors =
+            hybridSearchService.searchWithDetails(sessionId, "test", InteractionMode.EXPLORING);
+        HybridSearchService.SearchResult emptyAnchors =
+            hybridSearchService.searchWithDetails(
+                sessionId, "test", InteractionMode.EXPLORING, List.of());
+
+        assertThat(emptyAnchors.finalResults()).hasSameSizeAs(noAnchors.finalResults());
+      }
+    }
+
+    @Test
+    @DisplayName("should boost anchor document chunks above others in final ranking")
+    void shouldBoostAnchorChunks_aboveOthers() {
+      try (var timerMock =
+          org.mockito.Mockito.mockStatic(Timer.class, org.mockito.Mockito.CALLS_REAL_METHODS)) {
+        timerMock.when(() -> Timer.start(meterRegistry)).thenReturn(timerSample);
+
+        UUID anchorDocId = UUID.randomUUID();
+        UUID otherDocId = UUID.randomUUID();
+
+        // The anchor chunk is ranked LOWER in raw search results
+        DocumentChunk anchorChunk =
+            DocumentChunk.builder()
+                .id("anchor")
+                .sessionId(sessionId)
+                .documentId(anchorDocId)
+                .content("Anchor doc content")
+                .fileName("anchor.pdf")
+                .chunkIndex(0)
+                .build();
+        DocumentChunk otherChunk =
+            DocumentChunk.builder()
+                .id("other")
+                .sessionId(sessionId)
+                .documentId(otherDocId)
+                .content("Other doc content")
+                .fileName("other.pdf")
+                .chunkIndex(0)
+                .build();
+
+        List<Float> embedding = List.of(0.1f, 0.2f, 0.3f);
+        when(embeddingService.embedQuery(anyString())).thenReturn(embedding);
+        when(documentChunkIndexService.vectorSearch(eq(sessionId), eq(embedding), anyInt()))
+            .thenReturn(List.of(otherChunk, anchorChunk));
+        when(documentChunkIndexService.keywordSearch(eq(sessionId), anyString(), anyInt()))
+            .thenReturn(List.of(otherChunk, anchorChunk));
+        when(llmReranker.rerank(anyString(), any(), anyInt()))
+            .thenAnswer(
+                invocation -> {
+                  List<DocumentChunk> chunks = invocation.getArgument(1);
+                  return chunks.stream().map(c -> new LLMReranker.ScoredChunk(c, 0.8)).toList();
+                });
+        when(diversityReranker.rerank(any(), anyInt()))
+            .thenAnswer(invocation -> invocation.getArgument(0));
+
+        // Use high boost to guarantee anchor wins
+        RagConfig.Retrieval retrieval = new RagConfig.Retrieval();
+        retrieval.setSourceAnchoringEnabled(true);
+        retrieval.setSourceAnchoringBoost(0.5);
+        ragConfig.setRetrieval(retrieval);
+
+        List<DocumentChunk> results =
+            hybridSearchService
+                .searchWithDetails(
+                    sessionId,
+                    "test query",
+                    InteractionMode.EXPLORING,
+                    List.of(anchorDocId.toString()))
+                .finalResults();
+
+        assertThat(results).isNotEmpty();
+        assertThat(results.get(0).getId()).isEqualTo("anchor");
       }
     }
   }

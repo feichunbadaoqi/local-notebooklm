@@ -65,6 +65,12 @@ dependencies {
     implementation "org.apache.tika:tika-core:${tikaVersion}"
     implementation "org.apache.tika:tika-parsers-standard-package:${tikaVersion}"
 
+    // ============ Structure-Aware Document Parsing ============
+    // PDFBox for PDF heading/table/image extraction (Apache 2.0)
+    implementation 'org.apache.pdfbox:pdfbox:3.0.5'
+    // Commonmark for Markdown AST parsing (BSD-2-Clause)
+    implementation 'org.commonmark:commonmark:0.22.0'
+
     // ============ Resilience ============
     implementation "io.github.resilience4j:resilience4j-spring-boot3:${resilience4jVersion}"
     implementation "io.github.resilience4j:resilience4j-circuitbreaker:${resilience4jVersion}"

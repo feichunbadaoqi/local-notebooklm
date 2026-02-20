@@ -58,6 +58,22 @@ import { marked } from 'marked';
                   </button>
                 }
               </div>
+              <!-- Images associated with citations -->
+              @for (citation of getUniqueCitations(); track citation.sourceNumber) {
+                @if (citation.imageIds && citation.imageIds.length > 0 && sessionId()) {
+                  <div class="mt-2 flex flex-wrap gap-2">
+                    @for (imageId of citation.imageIds; track imageId) {
+                      <img
+                        [src]="'/api/sessions/' + sessionId() + '/images/' + imageId"
+                        class="max-h-48 rounded border border-border object-contain cursor-pointer"
+                        loading="lazy"
+                        [alt]="'Image from ' + citation.fileName"
+                        (error)="onImageError($event)"
+                      />
+                    }
+                  </div>
+                }
+              }
             </div>
           }
 
@@ -95,6 +111,8 @@ import { marked } from 'marked';
 export class ChatMessageComponent {
   message = input.required<ChatMessage>();
   citationClick = output<Citation>();
+  /** Session ID required to build image src URLs. */
+  sessionId = input<string | null>(null);
 
   constructor() {
     // Configure marked options
@@ -145,5 +163,12 @@ export class ChatMessageComponent {
     }
 
     return Array.from(seen.values());
+  }
+
+  onImageError(event: Event): void {
+    const img = event.target as HTMLImageElement;
+    if (img) {
+      img.style.display = 'none';
+    }
   }
 }

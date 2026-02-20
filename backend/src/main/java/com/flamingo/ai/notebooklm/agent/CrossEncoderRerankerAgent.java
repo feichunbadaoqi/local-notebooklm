@@ -1,5 +1,6 @@
 package com.flamingo.ai.notebooklm.agent;
 
+import com.flamingo.ai.notebooklm.agent.dto.RerankingScores;
 import dev.langchain4j.service.SystemMessage;
 import dev.langchain4j.service.UserMessage;
 import dev.langchain4j.service.V;
@@ -24,17 +25,14 @@ public interface CrossEncoderRerankerAgent {
         - 0.1-0.3 = Marginally relevant, tangentially related
         - 0.0 = Not relevant at all
 
-        Return ONLY a comma-separated list of scores (0.0-1.0) in order.
-        Example: 0.8,0.3,0.9,0.5
+        Return a JSON object with a "scores" array containing one float per passage in order.
+        Example: {"scores": [0.8, 0.3, 0.9, 0.5]}
         """)
-  @UserMessage(
-      """
+  @UserMessage("""
         Query: {{query}}
 
         Passages:
         {{passages}}
-
-        Scores:
         """)
-  String scorePassages(@V("query") String query, @V("passages") String passages);
+  RerankingScores scorePassages(@V("query") String query, @V("passages") String passages);
 }

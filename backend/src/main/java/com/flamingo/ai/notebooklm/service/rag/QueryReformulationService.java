@@ -14,7 +14,8 @@ public interface QueryReformulationService {
    * @param sessionId The session ID to retrieve conversation history
    * @param originalQuery The raw user query
    * @param mode Current interaction mode (for logging/metrics)
-   * @return Reformulated query (or original if standalone)
+   * @return ReformulatedQuery containing the query to use for retrieval, a follow-up flag, and
+   *     anchor document IDs for source-anchored search
    */
-  String reformulate(UUID sessionId, String originalQuery, InteractionMode mode);
+  ReformulatedQuery reformulate(UUID sessionId, String originalQuery, InteractionMode mode);
 }

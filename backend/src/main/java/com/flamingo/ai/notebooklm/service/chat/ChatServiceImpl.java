@@ -1,5 +1,6 @@
 package com.flamingo.ai.notebooklm.service.chat;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.flamingo.ai.notebooklm.agent.ChatStreamingAgent;
 import com.flamingo.ai.notebooklm.api.dto.response.StreamChunkResponse;
 import com.flamingo.ai.notebooklm.config.RagConfig;
@@ -18,6 +19,7 @@ import com.flamingo.ai.notebooklm.service.memory.MemoryService;
 import com.flamingo.ai.notebooklm.service.rag.EmbeddingService;
 import com.flamingo.ai.notebooklm.service.rag.HybridSearchService;
 import com.flamingo.ai.notebooklm.service.rag.QueryReformulationService;
+import com.flamingo.ai.notebooklm.service.rag.ReformulatedQuery;
 import com.flamingo.ai.notebooklm.service.session.SessionService;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.SystemMessage;
@@ -31,6 +33,7 @@ import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -57,6 +60,7 @@ public class ChatServiceImpl implements ChatService {
   private final com.flamingo.ai.notebooklm.service.rag.RetrievalConfidenceService confidenceService;
   private final ChatMessageIndexService chatMessageIndexService;
   private final EmbeddingService embeddingService;
+  private final ObjectMapper objectMapper;
 
   @Override
   @Timed(value = "chat.stream", description = "Time to stream chat response")
@@ -74,13 +78,28 @@ public class ChatServiceImpl implements ChatService {
     log.debug("User message saved");
 
     // Reformulate query with conversation context
-    String searchQuery = queryReformulationService.reformulate(sessionId, userMessage, mode);
-    log.debug("Original query: {} | Reformulated query: {}", userMessage, searchQuery);
+    ReformulatedQuery reformulated =
+        queryReformulationService.reformulate(sessionId, userMessage, mode);
+    String searchQuery = reformulated.query();
+    log.debug(
+        "Original: {} | Rewritten: {} | followUp={} | anchorDocs={}",
+        userMessage,
+        searchQuery,
+        reformulated.isFollowUp(),
+        reformulated.anchorDocumentIds().size());
 
-    // Retrieve relevant context via RAG using reformulated query (with details for confidence)
+    // Retrieve relevant context via RAG (with details for confidence calculation)
     log.debug("Starting hybrid search for context...");
-    HybridSearchService.SearchResult searchResult =
-        hybridSearchService.searchWithDetails(sessionId, searchQuery, mode);
+    HybridSearchService.SearchResult searchResult;
+    if (reformulated.isFollowUp()
+        && !reformulated.anchorDocumentIds().isEmpty()
+        && ragConfig.getRetrieval().isSourceAnchoringEnabled()) {
+      searchResult =
+          hybridSearchService.searchWithDetails(
+              sessionId, searchQuery, mode, reformulated.anchorDocumentIds());
+    } else {
+      searchResult = hybridSearchService.searchWithDetails(sessionId, searchQuery, mode);
+    }
     List<DocumentChunk> relevantChunks = searchResult.finalResults();
     log.debug("Hybrid search returned {} chunks", relevantChunks.size());
 
@@ -151,15 +170,18 @@ public class ChatServiceImpl implements ChatService {
                           chunk
                                   .getContent()
                                   .substring(0, Math.min(100, chunk.getContent().length()))
-                              + "..."));
+                              + "...",
+                          chunk.getAssociatedImageIds()));
                 }
               }
 
-              // Save assistant message
+              // Save assistant message with retrieved context for follow-up anchoring
               String fullResponse = responseBuilder.get().toString();
               log.debug("Full response length: {}", fullResponse.length());
+              String retrievedContextJson = serializeDocumentIds(relevantChunks);
               ChatMessage assistantMsg =
-                  saveMessage(session, MessageRole.ASSISTANT, fullResponse, mode);
+                  saveMessage(
+                      session, MessageRole.ASSISTANT, fullResponse, mode, retrievedContextJson);
               log.debug("Assistant message saved with id: {}", assistantMsg.getId());
 
               // Update metrics
@@ -311,6 +333,16 @@ public class ChatServiceImpl implements ChatService {
   @Transactional
   protected ChatMessage saveMessage(
       Session session, MessageRole role, String content, InteractionMode mode) {
+    return saveMessage(session, role, content, mode, null);
+  }
+
+  @Transactional
+  protected ChatMessage saveMessage(
+      Session session,
+      MessageRole role,
+      String content,
+      InteractionMode mode,
+      String retrievedContextJson) {
     ChatMessage message =
         ChatMessage.builder()
             .session(session)
@@ -319,6 +351,7 @@ public class ChatServiceImpl implements ChatService {
             .modeUsed(mode)
             .tokenCount(estimateTokenCount(content))
             .isCompacted(false)
+            .retrievedContextJson(retrievedContextJson)
             .build();
 
     ChatMessage saved = chatMessageRepository.save(message);
@@ -346,6 +379,27 @@ public class ChatServiceImpl implements ChatService {
     }
 
     return saved;
+  }
+
+  private String serializeDocumentIds(List<DocumentChunk> chunks) {
+    if (chunks.isEmpty()) {
+      return null;
+    }
+    List<String> docIds =
+        chunks.stream()
+            .filter(c -> c.getDocumentId() != null)
+            .map(c -> c.getDocumentId().toString())
+            .distinct()
+            .collect(Collectors.toList());
+    if (docIds.isEmpty()) {
+      return null;
+    }
+    try {
+      return objectMapper.writeValueAsString(docIds);
+    } catch (Exception e) {
+      log.warn("Failed to serialize document IDs: {}", e.getMessage());
+      return null;
+    }
   }
 
   private int estimateTokenCount(String text) {
