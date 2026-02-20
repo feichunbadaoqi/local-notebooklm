@@ -42,6 +42,8 @@ import { HeaderComponent } from '../../../../shared/components/header/header.com
             [streamContent]="chatService.currentStreamContent()"
             [citations]="chatService.currentCitations()"
             [loading]="chatService.loading()"
+            [error]="chatService.error()"
+            [sessionId]="sessionService.currentSession()?.id ?? null"
             (sendMessage)="onSendMessage($event)"
           />
         </main>

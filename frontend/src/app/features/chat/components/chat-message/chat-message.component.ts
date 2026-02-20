@@ -48,13 +48,20 @@ import { marked } from 'marked';
               <div class="flex flex-wrap gap-2">
                 @for (citation of getUniqueCitations(); track citation.sourceNumber) {
                   <button
-                    class="flex items-center gap-2 px-3 py-1.5 bg-bg-sidebar hover:bg-bg-hover rounded-lg text-sm transition-colors group"
+                    class="flex flex-col items-start gap-1 px-3 py-2 bg-bg-sidebar hover:bg-bg-hover rounded-lg text-sm transition-colors group"
                     (click)="citationClick.emit(citation)"
                   >
-                    <span class="citation">{{ citation.sourceNumber }}</span>
-                    <span class="text-text-primary group-hover:text-primary truncate max-w-[200px]">
-                      {{ citation.fileName }}
-                    </span>
+                    <div class="flex items-center gap-2">
+                      <span class="citation">{{ citation.sourceNumber }}</span>
+                      <span class="text-text-primary group-hover:text-primary truncate max-w-[200px]">
+                        {{ citation.fileName }}
+                      </span>
+                    </div>
+                    @if (citation.sectionBreadcrumb && citation.sectionBreadcrumb.length > 0) {
+                      <span class="text-xs text-text-muted truncate max-w-[250px]">
+                        {{ citation.sectionBreadcrumb.join(' > ') }}
+                      </span>
+                    }
                   </button>
                 }
               </div>
@@ -140,6 +147,18 @@ export class ChatMessageComponent {
           `<span class="citation cursor-pointer" data-source="${citation.sourceNumber}">${citation.sourceNumber}</span>`
         );
       }
+    }
+
+    // Second, replace image markers [IMAGE: ... - ID: uuid] with actual <img> tags
+    const sessionId = this.sessionId();
+    if (sessionId) {
+      const imageMarkerPattern = /\[IMAGE:.*?- ID: ([a-f0-9-]+)\]/gi;
+      content = content.replace(imageMarkerPattern, (match, imageId) => {
+        return `<img src="/api/sessions/${sessionId}/images/${imageId}"
+                     class="max-h-96 rounded border border-border my-4"
+                     loading="lazy"
+                     alt="Document image" />`;
+      });
     }
 
     // Then render markdown to HTML

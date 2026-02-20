@@ -8,7 +8,7 @@
 
 This file contains Java/Spring Boot specific coding standards for the NotebookLM backend.
 
-**Tech Stack:** Spring Boot 4.0.2 · LangChain4j 1.11.0 · SQLite (JPA/Hibernate) · Elasticsearch 9 · OpenAI GPT-4o-mini
+**Tech Stack:** Spring Boot 4.0.2 · LangChain4j 1.11.0 · SQLite (JPA/Hibernate) · Elasticsearch 9 · OpenAI GPT (see application.yaml for model)
 
 ## Interface-Driven Design
 

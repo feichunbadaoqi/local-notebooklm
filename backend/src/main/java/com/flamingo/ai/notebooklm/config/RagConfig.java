@@ -21,6 +21,7 @@ public class RagConfig {
   private QueryReformulation queryReformulation = new QueryReformulation();
   private Reranking reranking = new Reranking();
   private ImageStorage imageStorage = new ImageStorage();
+  private ImageGrouping imageGrouping = new ImageGrouping();
 
   @Getter
   @Setter
@@ -124,5 +125,44 @@ public class RagConfig {
 
     /** Maximum image file size in bytes; images larger than this are skipped. */
     private long maxFileSizeBytes = 10 * 1024 * 1024L; // 10 MB
+
+    /**
+     * Whether to render composite images for spatial groups.
+     *
+     * <p>When true, multiple small images that are spatially close (e.g., icons in a diagram) are
+     * rendered as a single composite image from the PDF, matching what users see in the original
+     * document. When false, each extracted image is stored individually.
+     */
+    private boolean compositeRenderingEnabled = true;
+  }
+
+  /** Configuration for image grouping strategies to keep related images together in chunks. */
+  @Getter
+  @Setter
+  public static class ImageGrouping {
+    /** Strategy to use: "spatial" (default) or "page-based". */
+    private String strategy = "spatial";
+
+    private Spatial spatial = new Spatial();
+    private PageBased pageBased = new PageBased();
+
+    /** Configuration for spatial clustering strategy. */
+    @Getter
+    @Setter
+    public static class Spatial {
+      /** Distance threshold in PDF coordinate units (~72 units per inch). */
+      private float threshold = 100.0f;
+
+      /** Minimum number of images to form a group. */
+      private int minGroupSize = 2;
+    }
+
+    /** Configuration for page-based grouping strategy. */
+    @Getter
+    @Setter
+    public static class PageBased {
+      /** Minimum number of images on a page to form a group. */
+      private int minGroupSize = 2;
+    }
   }
 }

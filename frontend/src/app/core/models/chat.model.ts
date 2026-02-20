@@ -15,11 +15,14 @@ export interface ChatMessage {
 
 export interface Citation {
   sourceNumber: number;
+  documentId: string;
   fileName: string;
   content: string;
   chunkId: string;
   /** UUIDs of images extracted from the cited document chunk. */
   imageIds?: string[];
+  /** Hierarchical breadcrumb path showing section context, e.g. ["Chapter 1", "Security", "Best Practices"]. */
+  sectionBreadcrumb?: string[];
 }
 
 export interface SendMessageRequest {

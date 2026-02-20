@@ -61,7 +61,9 @@
       "WebFetch(domain:artifacts.elastic.co)",
       "WebFetch(domain:javadoc.io)",
       "Bash(./gradlew checkstyleMain:*)",
-      "Bash(python3:*)"
+      "Bash(python3:*)",
+      "Bash(sqlite3:*)",
+      "Bash(./gradlew:*)"
     ]
   }
 }

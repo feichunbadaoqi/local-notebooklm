@@ -2,7 +2,10 @@ package com.flamingo.ai.notebooklm.service.rag;
 
 import com.flamingo.ai.notebooklm.config.RagConfig;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
@@ -24,7 +27,10 @@ import org.springframework.stereotype.Service;
  */
 @Service
 @Slf4j
+@RequiredArgsConstructor
 public class SectionAwareChunker implements DocumentChunker {
+
+  private final ImageGroupingStrategy imageGroupingStrategy;
 
   /** Maximum characters per chunk before splitting (conservative embedding-limit guard). */
   private static final int MAX_CHARS = 3500;
@@ -233,38 +239,93 @@ public class SectionAwareChunker implements DocumentChunker {
   // ---- image association ----
 
   /**
-   * For each chunk, populate {@code associatedImageIndices} by finding images whose {@code
-   * approximateOffset} falls within the character range of the chunk within the full text.
+   * Associates images with chunks using the configured grouping strategy.
    *
-   * <p>This is a best-effort heuristic because offsets produced by different parsers may not be
-   * perfectly aligned with the sliding-window character positions.
+   * <p>The strategy first groups related images (e.g., icons in a diagram), then assigns each group
+   * to the same chunk. Ungrouped images are assigned individually using the nearest-distance
+   * heuristic.
+   *
+   * <p>This approach prevents diagram fragmentation across multiple chunks.
    */
   private void associateImages(List<RawDocumentChunk> chunks, ParsedDocument document) {
     if (document.images().isEmpty() || chunks.isEmpty()) {
       return;
     }
 
-    // Map each image's approximate char offset to the nearest chunk
-    int totalChars = 0;
+    log.debug("Using {} strategy for image grouping", imageGroupingStrategy.getStrategyName());
+
+    // Apply grouping strategy to images
+    List<ExtractedImage> groupedImages = imageGroupingStrategy.groupImages(document.images());
+
+    // Build chunk start offsets for distance calculations
     List<Integer> chunkStarts = new ArrayList<>();
+    int totalChars = 0;
     for (RawDocumentChunk chunk : chunks) {
       chunkStarts.add(totalChars);
       totalChars += chunk.content().length();
     }
 
-    for (ExtractedImage image : document.images()) {
-      int offset = image.approximateOffset();
-      // Find the chunk whose start is closest to the image offset
-      int bestChunk = 0;
-      int bestDist = Integer.MAX_VALUE;
-      for (int i = 0; i < chunkStarts.size(); i++) {
-        int dist = Math.abs(chunkStarts.get(i) - offset);
-        if (dist < bestDist) {
-          bestDist = dist;
-          bestChunk = i;
-        }
+    // Partition images into grouped and ungrouped (LinkedHashMap preserves insertion order)
+    Map<Integer, List<ExtractedImage>> imageGroups = new LinkedHashMap<>();
+    List<ExtractedImage> ungroupedImages = new ArrayList<>();
+
+    for (ExtractedImage image : groupedImages) {
+      if (image.spatialGroupId() >= 0) {
+        imageGroups.computeIfAbsent(image.spatialGroupId(), k -> new ArrayList<>()).add(image);
+      } else {
+        ungroupedImages.add(image);
       }
+    }
+
+    // Assign grouped images: all images in a group go to the same chunk
+    for (Map.Entry<Integer, List<ExtractedImage>> entry : imageGroups.entrySet()) {
+      List<ExtractedImage> group = entry.getValue();
+      // Use the first image's offset as representative for the group
+      int representativeOffset = group.get(0).approximateOffset();
+      int bestChunk = findNearestChunk(representativeOffset, chunkStarts);
+
+      for (ExtractedImage img : group) {
+        ((List<Integer>) chunks.get(bestChunk).associatedImageIndices()).add(img.index());
+      }
+
+      log.debug(
+          "Assigned spatial group {} ({} images) to chunk {}",
+          entry.getKey(),
+          group.size(),
+          bestChunk);
+    }
+
+    // Assign ungrouped images individually
+    for (ExtractedImage image : ungroupedImages) {
+      int bestChunk = findNearestChunk(image.approximateOffset(), chunkStarts);
       ((List<Integer>) chunks.get(bestChunk).associatedImageIndices()).add(image.index());
     }
+
+    log.debug(
+        "Associated {} images ({} groups, {} ungrouped) with {} chunks",
+        groupedImages.size(),
+        imageGroups.size(),
+        ungroupedImages.size(),
+        chunks.size());
+  }
+
+  /**
+   * Finds the chunk index whose start offset is closest to the given offset.
+   *
+   * @param offset character offset to match
+   * @param chunkStarts list of chunk start offsets
+   * @return index of the nearest chunk
+   */
+  private int findNearestChunk(int offset, List<Integer> chunkStarts) {
+    int bestChunk = 0;
+    int bestDist = Integer.MAX_VALUE;
+    for (int i = 0; i < chunkStarts.size(); i++) {
+      int dist = Math.abs(chunkStarts.get(i) - offset);
+      if (dist < bestDist) {
+        bestDist = dist;
+        bestChunk = i;
+      }
+    }
+    return bestChunk;
   }
 }

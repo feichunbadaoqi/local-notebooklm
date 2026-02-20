@@ -11,13 +11,18 @@ import java.util.stream.Collectors;
 import javax.imageio.ImageIO;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.pdfbox.Loader;
+import org.apache.pdfbox.contentstream.PDFStreamEngine;
+import org.apache.pdfbox.contentstream.operator.Operator;
+import org.apache.pdfbox.contentstream.operator.OperatorName;
+import org.apache.pdfbox.cos.COSBase;
+import org.apache.pdfbox.cos.COSName;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.PDPage;
-import org.apache.pdfbox.pdmodel.PDResources;
 import org.apache.pdfbox.pdmodel.graphics.PDXObject;
 import org.apache.pdfbox.pdmodel.graphics.image.PDImageXObject;
 import org.apache.pdfbox.text.PDFTextStripper;
 import org.apache.pdfbox.text.TextPosition;
+import org.apache.pdfbox.util.Matrix;
 import org.springframework.stereotype.Service;
 
 /**
@@ -256,33 +261,31 @@ public class PdfBoxDocumentParser implements DocumentParser {
 
   private List<ExtractedImage> extractImages(PDDocument pdfDoc) {
     List<ExtractedImage> images = new ArrayList<>();
-    int imageIndex = 0;
+    ImageLocationExtractor extractor = new ImageLocationExtractor();
+    int pageNumber = 0;
 
     for (PDPage page : pdfDoc.getPages()) {
-      PDResources resources = page.getResources();
-      if (resources == null) {
-        continue;
-      }
       try {
-        for (var cosName : resources.getXObjectNames()) {
-          PDXObject xObject = resources.getXObject(cosName);
-          if (xObject instanceof PDImageXObject imageXObject) {
-            ExtractedImage img = convertImage(imageXObject, imageIndex);
-            if (img != null) {
-              images.add(img);
-              imageIndex++;
-            }
-          }
-        }
+        extractor.setCurrentPage(pageNumber);
+        extractor.processPage(page);
       } catch (IOException e) {
-        log.warn("Could not read resources from PDF page: {}", e.getMessage());
+        log.warn("Could not process page {} for image extraction: {}", pageNumber, e.getMessage());
       }
+      pageNumber++;
     }
 
+    images.addAll(extractor.getImages());
+    log.debug("Extracted {} images with spatial metadata from PDF", images.size());
     return images;
   }
 
-  private ExtractedImage convertImage(PDImageXObject imageXObject, int index) {
+  private ExtractedImage convertImage(
+      PDImageXObject imageXObject,
+      int index,
+      int pageNumber,
+      float xCoordinate,
+      float yCoordinate,
+      int approximateOffset) {
     try {
       BufferedImage bufferedImage = imageXObject.getImage();
       if (bufferedImage == null) {
@@ -303,7 +306,17 @@ public class PdfBoxDocumentParser implements DocumentParser {
 
       String mimeType = "image/" + formatName.toLowerCase();
       return new ExtractedImage(
-          index, mimeType, data, bufferedImage.getWidth(), bufferedImage.getHeight(), "", 0);
+          index,
+          mimeType,
+          data,
+          bufferedImage.getWidth(),
+          bufferedImage.getHeight(),
+          "",
+          approximateOffset,
+          pageNumber,
+          xCoordinate,
+          yCoordinate,
+          -1); // spatialGroupId will be set by grouping strategy
     } catch (IOException e) {
       log.warn("Could not extract image {} from PDF: {}", index, e.getMessage());
       return null;
@@ -382,4 +395,96 @@ public class PdfBoxDocumentParser implements DocumentParser {
    * @param fontName name of the dominant font (may contain "Bold" for bold fonts)
    */
   record LineInfo(String text, float avgFontSize, String fontName) {}
+
+  /**
+   * Extracts images with spatial position metadata using PDFStreamEngine.
+   *
+   * <p>This processor intercepts "Do" (draw XObject) operations to capture image positions from the
+   * graphics state's Current Transformation Matrix (CTM).
+   */
+  private final class ImageLocationExtractor extends PDFStreamEngine {
+
+    private final List<ExtractedImage> images = new ArrayList<>();
+    private int currentPageNumber = 0;
+    private int imageIndex = 0;
+
+    ImageLocationExtractor() {
+      addOperator(new DrawObject(this));
+    }
+
+    void setCurrentPage(int pageNumber) {
+      this.currentPageNumber = pageNumber;
+    }
+
+    List<ExtractedImage> getImages() {
+      return images;
+    }
+
+    ExtractedImage convertImageWithPosition(
+        PDImageXObject imageXObject,
+        int index,
+        int pageNumber,
+        float xCoordinate,
+        float yCoordinate,
+        int approximateOffset) {
+      return PdfBoxDocumentParser.this.convertImage(
+          imageXObject, index, pageNumber, xCoordinate, yCoordinate, approximateOffset);
+    }
+
+    /** Custom operator that processes "Do" commands to extract images with position. */
+    private static class DrawObject
+        extends org.apache.pdfbox.contentstream.operator.OperatorProcessor {
+      private final ImageLocationExtractor extractor;
+
+      DrawObject(ImageLocationExtractor extractor) {
+        super(extractor);
+        this.extractor = extractor;
+      }
+
+      @Override
+      public void process(Operator operator, List<COSBase> operands) throws IOException {
+        if (operands.isEmpty()) {
+          return;
+        }
+
+        COSName objectName = (COSName) operands.get(0);
+        PDXObject xObject = extractor.getResources().getXObject(objectName);
+
+        if (xObject instanceof PDImageXObject imageXObject) {
+          Matrix ctm = extractor.getGraphicsState().getCurrentTransformationMatrix();
+          float xCoordinate = ctm.getTranslateX();
+          float yCoordinate = ctm.getTranslateY();
+
+          // Approximate character offset (rough heuristic based on page number and position)
+          // This will be improved by correlating with text extraction offsets
+          int approximateOffset = extractor.currentPageNumber * 1000;
+
+          ExtractedImage img =
+              extractor.convertImageWithPosition(
+                  imageXObject,
+                  extractor.imageIndex,
+                  extractor.currentPageNumber,
+                  xCoordinate,
+                  yCoordinate,
+                  approximateOffset);
+
+          if (img != null) {
+            extractor.images.add(img);
+            extractor.imageIndex++;
+            log.debug(
+                "Extracted image {} at page={}, x={}, y={}",
+                extractor.imageIndex - 1,
+                extractor.currentPageNumber,
+                xCoordinate,
+                yCoordinate);
+          }
+        }
+      }
+
+      @Override
+      public String getName() {
+        return OperatorName.DRAW_OBJECT;
+      }
+    }
+  }
 }

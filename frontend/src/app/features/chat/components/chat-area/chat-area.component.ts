@@ -14,7 +14,7 @@ import { marked } from 'marked';
     <div class="flex flex-col flex-1 min-h-0">
       <!-- Messages area -->
       <div #messagesContainer class="flex-1 overflow-y-auto px-4 py-6 min-h-0">
-        <div class="max-w-3xl mx-auto space-y-6">
+        <div class="max-w-5xl mx-auto space-y-6">
           @if (loading()) {
             <div class="flex items-center justify-center py-8">
               <div class="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin"></div>
@@ -48,6 +48,7 @@ import { marked } from 'marked';
             @for (message of messages(); track message.id) {
               <app-chat-message
                 [message]="message"
+                [sessionId]="sessionId()"
                 (citationClick)="onCitationClick($event)"
               />
             }
@@ -84,13 +85,29 @@ import { marked } from 'marked';
                 </div>
               </div>
             }
+
+            <!-- Error message -->
+            @if (error()) {
+              <div class="flex gap-4 p-4 bg-red-50 border border-red-200 rounded-lg">
+                <div class="w-8 h-8 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0">
+                  <svg class="w-5 h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                      d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                  </svg>
+                </div>
+                <div class="flex-1">
+                  <h4 class="text-sm font-semibold text-red-900 mb-1">Error</h4>
+                  <p class="text-sm text-red-700">{{ error() }}</p>
+                </div>
+              </div>
+            }
           }
         </div>
       </div>
 
       <!-- Input area -->
       <div class="border-t border-border p-4 bg-bg-main">
-        <div class="max-w-3xl mx-auto">
+        <div class="max-w-5xl mx-auto">
           <div class="relative">
             <textarea
               #inputField
@@ -126,6 +143,8 @@ export class ChatAreaComponent {
   streamContent = input<string>('');
   citations = input<Citation[]>([]);
   loading = input<boolean>(false);
+  error = input<string | null>(null);
+  sessionId = input<string | null>(null);
 
   sendMessage = output<string>();
 

@@ -230,20 +230,24 @@ export class ChatService {
       case 'token':
         return { eventType, content: data.content };
       case 'citation':
+        const documentId = data.documentId || '';
         const fileName = data.source || '';
-        // Assign unique citation numbers, deduplicating by fileName
-        let sourceNumber = this.citationNumberMap.get(fileName);
+        // Assign unique citation numbers, deduplicating by documentId
+        let sourceNumber = this.citationNumberMap.get(documentId);
         if (sourceNumber === undefined) {
           sourceNumber = ++this.currentCitationCounter;
-          this.citationNumberMap.set(fileName, sourceNumber);
+          this.citationNumberMap.set(documentId, sourceNumber);
         }
         return {
           eventType,
           citation: {
             sourceNumber,
+            documentId,
             fileName,
             content: data.text || '',
-            chunkId: ''
+            chunkId: '',
+            imageIds: data.imageIds || [],
+            sectionBreadcrumb: data.sectionBreadcrumb || []
           }
         };
       case 'done':

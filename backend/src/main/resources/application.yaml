@@ -68,8 +68,7 @@ langchain4j:
   openai:
     api-key: ${OPENAI_API_KEY:}
     chat-model:
-      model-name: gpt-5.2  # Latest GPT-5.2 model
-      temperature: 0.7
+      model-name: gpt-5-mini  # Fast, cost-efficient with vision support (400K context, $0.25/M input)
       max-completion-tokens: 4096
       timeout: 120s
     embedding-model:
@@ -88,10 +87,10 @@ rag:
     source-anchoring-enabled: true   # Boost chunks from previous response docs on follow-ups
     source-anchoring-boost: 0.3      # Additive RRF boost for anchor document chunks
   reranking:
-    # LLM-based reranking via GPT-4o-mini (replaces Elasticsearch cross-encoder which requires Platinum license)
+    # LLM-based reranking using OpenAI model (see langchain4j.openai.chat-model.model-name)
     llm:
       enabled: true
-      batch-size: 20
+      batch-size: 30  # Fits EXPLORING mode: 8 topK × 3 multiplier = 24 candidates in one batch
   compaction:
     sliding-window-size: 10
     token-threshold: 3000
@@ -117,6 +116,13 @@ rag:
     base-path: data/images         # Root directory for images extracted from documents
     enabled: true                  # Set to false to skip image extraction
     max-file-size-bytes: 10485760  # 10 MB per image limit
+  image-grouping:
+    strategy: spatial              # Options: "spatial" (default) or "page-based"
+    spatial:
+      threshold: 100.0             # Distance threshold in PDF units (~1.4 inches at 72 DPI)
+      min-group-size: 2            # Minimum images to form a group
+    page-based:
+      min-group-size: 2            # Minimum images on a page to form a group
 
 # ============ Interaction Modes ============
 modes:

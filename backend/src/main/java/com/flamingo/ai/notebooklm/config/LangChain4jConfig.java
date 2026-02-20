@@ -18,11 +18,8 @@ public class LangChain4jConfig {
   @Value("${langchain4j.openai.api-key:}")
   private String openAiApiKey;
 
-  @Value("${langchain4j.openai.chat-model.model-name:gpt-4o-mini}")
+  @Value("${langchain4j.openai.chat-model.model-name:gpt-5-mini}")
   private String chatModelName;
-
-  @Value("${langchain4j.openai.chat-model.temperature:0.7}")
-  private double temperature;
 
   @Value("${langchain4j.openai.chat-model.max-completion-tokens:2048}")
   private int maxCompletionTokens;
@@ -40,7 +37,6 @@ public class LangChain4jConfig {
     return OpenAiChatModel.builder()
         .apiKey(openAiApiKey)
         .modelName(chatModelName)
-        .temperature(temperature)
         .maxCompletionTokens(maxCompletionTokens)
         .timeout(Duration.ofSeconds(60))
         .responseFormat("json_object")
@@ -56,7 +52,6 @@ public class LangChain4jConfig {
     return OpenAiStreamingChatModel.builder()
         .apiKey(openAiApiKey)
         .modelName(chatModelName)
-        .temperature(temperature)
         .maxCompletionTokens(maxCompletionTokens)
         .timeout(Duration.ofSeconds(120))
         .logRequests(false)

@@ -2,21 +2,15 @@ package com.flamingo.ai.notebooklm.service.rag;
 
 import com.flamingo.ai.notebooklm.config.RagConfig;
 import com.flamingo.ai.notebooklm.domain.entity.Document;
-import com.flamingo.ai.notebooklm.domain.entity.DocumentImage;
 import com.flamingo.ai.notebooklm.domain.enums.DocumentStatus;
-import com.flamingo.ai.notebooklm.domain.repository.DocumentImageRepository;
 import com.flamingo.ai.notebooklm.domain.repository.DocumentRepository;
 import com.flamingo.ai.notebooklm.elasticsearch.DocumentChunk;
 import com.flamingo.ai.notebooklm.elasticsearch.DocumentChunkIndexService;
 import com.flamingo.ai.notebooklm.exception.DocumentProcessingException;
 import io.micrometer.core.annotation.Timed;
 import io.micrometer.core.instrument.MeterRegistry;
-import java.io.IOException;
 import java.io.InputStream;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -41,11 +35,11 @@ import org.springframework.transaction.annotation.Transactional;
 public class DocumentProcessingService {
 
   private final DocumentRepository documentRepository;
-  private final DocumentImageRepository documentImageRepository;
   private final DocumentChunkIndexService documentChunkIndexService;
   private final EmbeddingService embeddingService;
   private final DocumentMetadataExtractor metadataExtractor;
   private final DocumentChunkingStrategyRouter strategyRouter;
+  private final ImageStorageService imageStorageService;
   private final RagConfig ragConfig;
   private final MeterRegistry meterRegistry;
 
@@ -65,6 +59,9 @@ public class DocumentProcessingService {
       Document document = getDocumentWithRetry(documentId);
       updateDocumentStatusWithRetry(documentId, DocumentStatus.PROCESSING, null, null);
 
+      // Read inputStream into byte array so we can reuse it for composite rendering
+      byte[] documentBytes = inputStream.readAllBytes();
+
       // --- 1. Chunk via strategy router ---
       DocumentContext context =
           new DocumentContext(
@@ -74,7 +71,8 @@ public class DocumentProcessingService {
               document.getMimeType());
 
       DocumentChunkingStrategy strategy = strategyRouter.route(document.getMimeType());
-      ChunkingResult result = strategy.chunkDocument(inputStream, context);
+      ChunkingResult result =
+          strategy.chunkDocument(new java.io.ByteArrayInputStream(documentBytes), context);
 
       List<RawDocumentChunk> rawChunks = result.chunks();
       String fullText = result.fullText();
@@ -85,9 +83,10 @@ public class DocumentProcessingService {
 
       log.info("Document {} split into {} chunks", documentId, rawChunks.size());
 
-      // --- 2. Store extracted images ---
+      // --- 2. Store extracted images (with composite rendering for spatial groups) ---
       Map<Integer, String> imageIndexToId =
-          storeImages(result.extractedImages(), documentId, document.getSession().getId());
+          imageStorageService.storeImages(
+              result.extractedImages(), documentBytes, documentId, document.getSession().getId());
 
       // --- 3. Extract document-level metadata ---
       String documentTitle =
@@ -122,14 +121,20 @@ public class DocumentProcessingService {
                     chunkContent, documentTitle, sectionTitle, chunkKeywords)
                 : chunkContent;
 
-        textsToEmbed.add(enrichedContent);
-
         // Map image indices → UUIDs for this chunk
         List<String> chunkImageIds =
             rawChunk.associatedImageIndices().stream()
                 .filter(imageIndexToId::containsKey)
                 .map(imageIndexToId::get)
                 .toList();
+
+        // Embed image markers in enriched content (for LLM to reference)
+        if (!chunkImageIds.isEmpty()) {
+          enrichedContent =
+              embedImageMarkers(enrichedContent, chunkImageIds, document.getFileName());
+        }
+
+        textsToEmbed.add(enrichedContent);
 
         documentChunks.add(
             DocumentChunk.builder()
@@ -301,78 +306,28 @@ public class DocumentProcessingService {
   }
 
   /**
-   * Writes extracted images to disk and persists {@link DocumentImage} entities.
+   * Embeds image reference markers in chunk content so the LLM can reference them in responses.
    *
-   * @return mapping from image index to the persisted entity UUID (as string)
+   * <p>Format: [IMAGE: filename - ID: uuid]
+   *
+   * <p>The LLM is instructed via system prompt to output these markers, which the frontend then
+   * renders as actual images.
    */
-  private Map<Integer, String> storeImages(
-      List<ExtractedImage> images, UUID documentId, UUID sessionId) {
-    Map<Integer, String> indexToId = new HashMap<>();
-    if (images.isEmpty() || !ragConfig.getImageStorage().isEnabled()) {
-      return indexToId;
+  private String embedImageMarkers(String enrichedContent, List<String> imageIds, String fileName) {
+    StringBuilder sb = new StringBuilder(enrichedContent);
+    sb.append("\n\n");
+
+    for (int i = 0; i < imageIds.size(); i++) {
+      sb.append("[IMAGE: ")
+          .append(fileName)
+          .append(" - Figure ")
+          .append(i + 1)
+          .append(" - ID: ")
+          .append(imageIds.get(i))
+          .append("]\n");
     }
 
-    String basePath = ragConfig.getImageStorage().getBasePath();
-    long maxBytes = ragConfig.getImageStorage().getMaxFileSizeBytes();
-
-    for (ExtractedImage image : images) {
-      if (image.data() == null || image.data().length == 0) {
-        continue;
-      }
-      if (image.data().length > maxBytes) {
-        log.warn(
-            "Skipping oversized image {} ({} bytes) for document {}",
-            image.index(),
-            image.data().length,
-            documentId);
-        continue;
-      }
-
-      String extension = extensionForMimeType(image.mimeType());
-      Path dir = Path.of(basePath, sessionId.toString(), documentId.toString());
-      Path filePath = dir.resolve(image.index() + "." + extension);
-
-      try {
-        Files.createDirectories(dir);
-        Files.write(filePath, image.data());
-
-        DocumentImage entity =
-            DocumentImage.builder()
-                .documentId(documentId)
-                .sessionId(sessionId)
-                .imageIndex(image.index())
-                .mimeType(image.mimeType())
-                .altText(image.altText() != null ? image.altText() : "")
-                .filePath(filePath.toAbsolutePath().toString())
-                .width(image.width())
-                .height(image.height())
-                .build();
-
-        DocumentImage saved = documentImageRepository.save(entity);
-        indexToId.put(image.index(), saved.getId().toString());
-        log.debug("Stored image {} for document {} at {}", image.index(), documentId, filePath);
-      } catch (IOException e) {
-        log.warn(
-            "Failed to store image {} for document {}: {}",
-            image.index(),
-            documentId,
-            e.getMessage());
-      }
-    }
-
-    return indexToId;
-  }
-
-  private String extensionForMimeType(String mimeType) {
-    if (mimeType == null) {
-      return "png";
-    }
-    return switch (mimeType.toLowerCase()) {
-      case "image/jpeg", "image/jpg" -> "jpg";
-      case "image/gif" -> "gif";
-      case "image/webp" -> "webp";
-      default -> "png";
-    };
+    return sb.toString();
   }
 
   private int estimateTokenCount(String text) {

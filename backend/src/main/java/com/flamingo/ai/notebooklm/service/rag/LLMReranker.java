@@ -14,8 +14,9 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 /**
- * LLM-based semantic reranking using GPT-4o-mini. Scores query-passage relevance by calling
- * OpenAI's chat model to evaluate relevance. Provides semantic reranking after RRF fusion.
+ * LLM-based semantic reranking using OpenAI chat model (see application.yaml:
+ * langchain4j.openai.chat-model.model-name). Scores query-passage relevance by calling OpenAI's
+ * chat model to evaluate relevance. Provides semantic reranking after RRF fusion.
  *
  * <p>Note: This is NOT a true cross-encoder model, but uses an LLM to perform semantic scoring. For
  * true cross-encoder reranking, see CrossEncoderRerankService.

@@ -24,17 +24,36 @@ public class StreamChunkResponse {
     return StreamChunkResponse.builder().eventType("token").data(new TokenData(content)).build();
   }
 
-  /** Creates a citation event without image IDs. */
-  public static StreamChunkResponse citation(String source, Integer page, String text) {
-    return citation(source, page, text, List.of());
+  /** Creates a citation event without image IDs or breadcrumb. */
+  public static StreamChunkResponse citation(
+      String documentId, String source, Integer page, String text) {
+    return citation(documentId, source, page, text, List.of(), List.of());
   }
 
-  /** Creates a citation event with associated image IDs. */
+  /** Creates a citation event with associated image IDs but no breadcrumb. */
   public static StreamChunkResponse citation(
-      String source, Integer page, String text, List<String> imageIds) {
+      String documentId, String source, Integer page, String text, List<String> imageIds) {
+    return citation(documentId, source, page, text, imageIds, List.of());
+  }
+
+  /** Creates a citation event with image IDs and section breadcrumb. */
+  public static StreamChunkResponse citation(
+      String documentId,
+      String source,
+      Integer page,
+      String text,
+      List<String> imageIds,
+      List<String> sectionBreadcrumb) {
     return StreamChunkResponse.builder()
         .eventType("citation")
-        .data(new CitationData(source, page, text, imageIds != null ? imageIds : List.of()))
+        .data(
+            new CitationData(
+                documentId,
+                source,
+                page,
+                text,
+                imageIds != null ? imageIds : List.of(),
+                sectionBreadcrumb != null ? sectionBreadcrumb : List.of()))
         .build();
   }
 
@@ -65,12 +84,19 @@ public class StreamChunkResponse {
   @Data
   @AllArgsConstructor
   public static class CitationData {
+    private String documentId;
     private String source;
     private Integer page;
     private String text;
 
     /** UUIDs of {@code DocumentImage} entities associated with the cited chunk. */
     private List<String> imageIds;
+
+    /**
+     * Hierarchical breadcrumb path showing the section context, e.g. ["Chapter 1", "Security",
+     * "Best Practices"].
+     */
+    private List<String> sectionBreadcrumb;
   }
 
   /** Done event data. */

@@ -41,6 +41,7 @@ class DocumentProcessingServiceTest {
   @Mock private DocumentMetadataExtractor metadataExtractor;
   @Mock private DocumentChunkingStrategyRouter strategyRouter;
   @Mock private DocumentChunkingStrategy chunkingStrategy;
+  @Mock private ImageStorageService imageStorageService;
   @Mock private RagConfig ragConfig;
 
   @Captor private ArgumentCaptor<List<DocumentChunk>> chunksCaptor;
@@ -54,11 +55,11 @@ class DocumentProcessingServiceTest {
     service =
         new DocumentProcessingService(
             documentRepository,
-            documentImageRepository,
             documentChunkIndexService,
             embeddingService,
             metadataExtractor,
             strategyRouter,
+            imageStorageService,
             ragConfig,
             meterRegistry);
   }

@@ -18,7 +18,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 |-----------|------------|
 | Frontend | Angular 20 with SSR |
 | Backend | Spring Boot 4.0.2 + LangChain4j |
-| LLM | OpenAI GPT-4o-mini + text-embedding-3-small |
+| LLM | OpenAI GPT models (see application.yaml for model versions) |
 | Storage | SQLite (sessions/chat) + Elasticsearch (vectors) |
 | API | REST (CRUD) + SSE (chat streaming) |
 

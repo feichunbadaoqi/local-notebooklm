@@ -165,13 +165,15 @@ public class ChatServiceImpl implements ChatService {
                 for (DocumentChunk chunk : relevantChunks) {
                   sink.tryEmitNext(
                       StreamChunkResponse.citation(
+                          chunk.getDocumentId().toString(),
                           chunk.getFileName(),
                           null,
                           chunk
                                   .getContent()
                                   .substring(0, Math.min(100, chunk.getContent().length()))
                               + "...",
-                          chunk.getAssociatedImageIds()));
+                          chunk.getAssociatedImageIds(),
+                          chunk.getSectionBreadcrumb()));
                 }
               }
 
@@ -315,6 +317,18 @@ public class ChatServiceImpl implements ChatService {
                   + "Build understanding progressively. Explain concepts step by step.");
       default -> prompt.append("Provide helpful, accurate responses.");
     }
+
+    // Instructions for handling image references
+    prompt.append(
+        "\n\nIMPORTANT - Image References:\n"
+            + "The document context may include image markers in the format:\n"
+            + "[IMAGE: filename - Figure N - ID: uuid]\n\n"
+            + "When you encounter these markers:\n"
+            + "1. Reference them naturally in your response (e.g., \"As shown in Figure 1...\")\n"
+            + "2. Include the EXACT marker in your response where relevant\n"
+            + "3. The UI will automatically render these as actual images\n"
+            + "4. Do NOT describe the image content unless you have textual context\n"
+            + "5. If asked about an image's visual content, say \"Please refer to the image above\"\n\n");
 
     if (!ragContext.isEmpty()) {
       prompt.append("\n\n").append(ragContext);
