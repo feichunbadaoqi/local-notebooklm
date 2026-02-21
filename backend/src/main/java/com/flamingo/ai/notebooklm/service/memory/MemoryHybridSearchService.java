@@ -3,7 +3,7 @@ package com.flamingo.ai.notebooklm.service.memory;
 import com.flamingo.ai.notebooklm.config.RagConfig;
 import com.flamingo.ai.notebooklm.elasticsearch.MemoryDocument;
 import com.flamingo.ai.notebooklm.elasticsearch.MemoryIndexService;
-import com.flamingo.ai.notebooklm.service.rag.EmbeddingService;
+import com.flamingo.ai.notebooklm.service.rag.embedding.EmbeddingService;
 import io.micrometer.core.annotation.Timed;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.util.Comparator;

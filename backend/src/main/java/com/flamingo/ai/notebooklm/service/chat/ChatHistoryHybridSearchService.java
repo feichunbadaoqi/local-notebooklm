@@ -3,7 +3,7 @@ package com.flamingo.ai.notebooklm.service.chat;
 import com.flamingo.ai.notebooklm.config.RagConfig;
 import com.flamingo.ai.notebooklm.elasticsearch.ChatMessageDocument;
 import com.flamingo.ai.notebooklm.elasticsearch.ChatMessageIndexService;
-import com.flamingo.ai.notebooklm.service.rag.EmbeddingService;
+import com.flamingo.ai.notebooklm.service.rag.embedding.EmbeddingService;
 import io.micrometer.core.annotation.Timed;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.util.HashMap;

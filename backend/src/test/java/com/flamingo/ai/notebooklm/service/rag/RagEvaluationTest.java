@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.flamingo.ai.notebooklm.elasticsearch.DocumentChunk;
+import com.flamingo.ai.notebooklm.service.rag.search.HybridSearchService;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;

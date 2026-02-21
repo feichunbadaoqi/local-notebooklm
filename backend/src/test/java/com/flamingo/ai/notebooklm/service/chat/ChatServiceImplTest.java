@@ -21,11 +21,14 @@ import com.flamingo.ai.notebooklm.domain.enums.InteractionMode;
 import com.flamingo.ai.notebooklm.domain.enums.MessageRole;
 import com.flamingo.ai.notebooklm.domain.repository.ChatMessageRepository;
 import com.flamingo.ai.notebooklm.domain.repository.ChatSummaryRepository;
+import com.flamingo.ai.notebooklm.elasticsearch.ChatMessageIndexService;
 import com.flamingo.ai.notebooklm.elasticsearch.DocumentChunk;
 import com.flamingo.ai.notebooklm.service.memory.MemoryService;
-import com.flamingo.ai.notebooklm.service.rag.HybridSearchService;
-import com.flamingo.ai.notebooklm.service.rag.QueryReformulationService;
-import com.flamingo.ai.notebooklm.service.rag.ReformulatedQuery;
+import com.flamingo.ai.notebooklm.service.rag.embedding.EmbeddingService;
+import com.flamingo.ai.notebooklm.service.rag.query.QueryReformulationService;
+import com.flamingo.ai.notebooklm.service.rag.query.ReformulatedQuery;
+import com.flamingo.ai.notebooklm.service.rag.search.HybridSearchService;
+import com.flamingo.ai.notebooklm.service.rag.search.RetrievalConfidenceService;
 import com.flamingo.ai.notebooklm.service.session.SessionService;
 import dev.langchain4j.service.TokenStream;
 import io.micrometer.core.instrument.Counter;
@@ -63,12 +66,9 @@ class ChatServiceImplTest {
   @Mock private Timer timer;
   @Mock private Timer.Sample timerSample;
 
-  @Mock private com.flamingo.ai.notebooklm.service.rag.RetrievalConfidenceService confidenceService;
-
-  @Mock
-  private com.flamingo.ai.notebooklm.elasticsearch.ChatMessageIndexService chatMessageIndexService;
-
-  @Mock private com.flamingo.ai.notebooklm.service.rag.EmbeddingService embeddingService;
+  @Mock private RetrievalConfidenceService confidenceService;
+  @Mock private ChatMessageIndexService chatMessageIndexService;
+  @Mock private EmbeddingService embeddingService;
 
   private final ObjectMapper objectMapper = new ObjectMapper();
   private RagConfig ragConfig;
@@ -135,14 +135,9 @@ class ChatServiceImplTest {
                   eq(sessionId), anyString(), any(InteractionMode.class)))
           .thenReturn(emptyResult);
       lenient().when(hybridSearchService.buildContext(any())).thenReturn("");
-
-      com.flamingo.ai.notebooklm.service.rag.RetrievalConfidenceService.ConfidenceScore
-          highConfidence =
-              new com.flamingo.ai.notebooklm.service.rag.RetrievalConfidenceService.ConfidenceScore(
-                  0.8,
-                  com.flamingo.ai.notebooklm.service.rag.RetrievalConfidenceService.ConfidenceLevel
-                      .HIGH,
-                  "High confidence");
+      RetrievalConfidenceService.ConfidenceScore highConfidence =
+          new RetrievalConfidenceService.ConfidenceScore(
+              0.8, RetrievalConfidenceService.ConfidenceLevel.HIGH, "High confidence");
       when(confidenceService.calculateConfidence(any(), any(), any(), anyString()))
           .thenReturn(highConfidence);
       when(chatSummaryRepository.findBySessionIdOrderByCreatedAtDesc(sessionId))
@@ -261,6 +256,7 @@ class ChatServiceImplTest {
         DocumentChunk chunk =
             DocumentChunk.builder()
                 .id("chunk1")
+                .documentId(UUID.randomUUID())
                 .fileName("test.pdf")
                 .content(
                     "This is test content from the document that contains relevant information.")

@@ -16,10 +16,10 @@ import com.flamingo.ai.notebooklm.elasticsearch.ChatMessageDocument;
 import com.flamingo.ai.notebooklm.elasticsearch.ChatMessageIndexService;
 import com.flamingo.ai.notebooklm.elasticsearch.DocumentChunk;
 import com.flamingo.ai.notebooklm.service.memory.MemoryService;
-import com.flamingo.ai.notebooklm.service.rag.EmbeddingService;
-import com.flamingo.ai.notebooklm.service.rag.HybridSearchService;
-import com.flamingo.ai.notebooklm.service.rag.QueryReformulationService;
-import com.flamingo.ai.notebooklm.service.rag.ReformulatedQuery;
+import com.flamingo.ai.notebooklm.service.rag.embedding.EmbeddingService;
+import com.flamingo.ai.notebooklm.service.rag.query.QueryReformulationService;
+import com.flamingo.ai.notebooklm.service.rag.query.ReformulatedQuery;
+import com.flamingo.ai.notebooklm.service.rag.search.HybridSearchService;
 import com.flamingo.ai.notebooklm.service.session.SessionService;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.SystemMessage;
@@ -57,7 +57,8 @@ public class ChatServiceImpl implements ChatService {
   private final QueryReformulationService queryReformulationService;
   private final RagConfig ragConfig;
   private final MeterRegistry meterRegistry;
-  private final com.flamingo.ai.notebooklm.service.rag.RetrievalConfidenceService confidenceService;
+  private final com.flamingo.ai.notebooklm.service.rag.search.RetrievalConfidenceService
+      confidenceService;
   private final ChatMessageIndexService chatMessageIndexService;
   private final EmbeddingService embeddingService;
   private final ObjectMapper objectMapper;
@@ -104,14 +105,19 @@ public class ChatServiceImpl implements ChatService {
     log.debug("Hybrid search returned {} chunks", relevantChunks.size());
 
     // Calculate retrieval confidence
-    com.flamingo.ai.notebooklm.service.rag.RetrievalConfidenceService.ConfidenceScore confidence =
-        confidenceService.calculateConfidence(
-            searchResult.vectorResults(), searchResult.bm25Results(), relevantChunks, searchQuery);
+    com.flamingo.ai.notebooklm.service.rag.search.RetrievalConfidenceService.ConfidenceScore
+        confidence =
+            confidenceService.calculateConfidence(
+                searchResult.vectorResults(),
+                searchResult.bm25Results(),
+                relevantChunks,
+                searchQuery);
     log.info("Retrieval confidence: {} ({})", confidence.level(), confidence.explanation());
 
     // Check if confidence is too low to answer
     if (confidence.level()
-        == com.flamingo.ai.notebooklm.service.rag.RetrievalConfidenceService.ConfidenceLevel.LOW) {
+        == com.flamingo.ai.notebooklm.service.rag.search.RetrievalConfidenceService.ConfidenceLevel
+            .LOW) {
       log.warn("Low confidence retrieval, returning insufficient information message");
       return Flux.just(
           StreamChunkResponse.token(
@@ -126,7 +132,7 @@ public class ChatServiceImpl implements ChatService {
     // Build conversation context (add uncertainty note for medium confidence)
     String systemPromptSuffix = "";
     if (confidence.level()
-        == com.flamingo.ai.notebooklm.service.rag.RetrievalConfidenceService.ConfidenceLevel
+        == com.flamingo.ai.notebooklm.service.rag.search.RetrievalConfidenceService.ConfidenceLevel
             .MEDIUM) {
       systemPromptSuffix =
           "\n\nNote: Evidence quality is moderate. "
@@ -163,6 +169,11 @@ public class ChatServiceImpl implements ChatService {
               if (!relevantChunks.isEmpty()) {
                 log.debug("Sending {} citations", relevantChunks.size());
                 for (DocumentChunk chunk : relevantChunks) {
+                  // Skip chunks without documentId (shouldn't happen in production, but test-safe)
+                  if (chunk.getDocumentId() == null) {
+                    log.warn("Skipping citation for chunk with null documentId: {}", chunk.getId());
+                    continue;
+                  }
                   sink.tryEmitNext(
                       StreamChunkResponse.citation(
                           chunk.getDocumentId().toString(),

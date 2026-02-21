@@ -9,7 +9,7 @@ import com.flamingo.ai.notebooklm.domain.enums.InteractionMode;
 import com.flamingo.ai.notebooklm.domain.repository.MemoryRepository;
 import com.flamingo.ai.notebooklm.elasticsearch.MemoryDocument;
 import com.flamingo.ai.notebooklm.elasticsearch.MemoryIndexService;
-import com.flamingo.ai.notebooklm.service.rag.EmbeddingService;
+import com.flamingo.ai.notebooklm.service.rag.embedding.EmbeddingService;
 import com.flamingo.ai.notebooklm.service.session.SessionService;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import io.micrometer.core.instrument.MeterRegistry;

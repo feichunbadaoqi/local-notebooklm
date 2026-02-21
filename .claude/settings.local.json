@@ -63,7 +63,8 @@
       "Bash(./gradlew checkstyleMain:*)",
       "Bash(python3:*)",
       "Bash(sqlite3:*)",
-      "Bash(./gradlew:*)"
+      "Bash(./gradlew:*)",
+      "Bash(git stash:*)"
     ]
   }
 }

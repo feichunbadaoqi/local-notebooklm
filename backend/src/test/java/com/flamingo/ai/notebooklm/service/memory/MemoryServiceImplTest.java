@@ -44,7 +44,7 @@ class MemoryServiceImplTest {
   @Mock private MeterRegistry meterRegistry;
   @Mock private Counter counter;
   @Mock private com.flamingo.ai.notebooklm.elasticsearch.MemoryIndexService memoryIndexService;
-  @Mock private com.flamingo.ai.notebooklm.service.rag.EmbeddingService embeddingService;
+  @Mock private com.flamingo.ai.notebooklm.service.rag.embedding.EmbeddingService embeddingService;
   @Mock private MemoryHybridSearchService memoryHybridSearchService;
 
   private RagConfig ragConfig;

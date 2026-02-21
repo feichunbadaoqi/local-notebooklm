@@ -1,6 +1,5 @@
 package com.flamingo.ai.notebooklm.config;
 
-import com.flamingo.ai.notebooklm.agent.AnswerVerificationAgent;
 import com.flamingo.ai.notebooklm.agent.ChatCompactionAgent;
 import com.flamingo.ai.notebooklm.agent.ChatStreamingAgent;
 import com.flamingo.ai.notebooklm.agent.CrossEncoderRerankerAgent;
@@ -55,15 +54,6 @@ public class AiAgentConfig {
   @Bean
   public ChatCompactionAgent chatCompactionAgent(ChatModel chatModel) {
     return AiServices.builder(ChatCompactionAgent.class).chatModel(chatModel).build();
-  }
-
-  /**
-   * Answer verification agent for fact-checking claims against evidence. Uses ChatModel to score
-   * claim-evidence support levels.
-   */
-  @Bean
-  public AnswerVerificationAgent answerVerificationAgent(ChatModel chatModel) {
-    return AiServices.builder(AnswerVerificationAgent.class).chatModel(chatModel).build();
   }
 
   /**

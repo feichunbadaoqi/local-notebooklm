@@ -6,7 +6,7 @@ import co.elastic.clients.elasticsearch.ElasticsearchClient;
 import com.flamingo.ai.notebooklm.service.chat.ChatService;
 import com.flamingo.ai.notebooklm.service.document.DocumentService;
 import com.flamingo.ai.notebooklm.service.memory.MemoryService;
-import com.flamingo.ai.notebooklm.service.rag.HybridSearchService;
+import com.flamingo.ai.notebooklm.service.rag.search.HybridSearchService;
 import com.flamingo.ai.notebooklm.service.session.SessionService;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.StreamingChatModel;
