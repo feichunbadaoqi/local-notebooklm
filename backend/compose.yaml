@@ -30,7 +30,7 @@ services:
   tei-reranker:
     image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.9
     container_name: notebooklm-tei-reranker
-    command: --model-id BAAI/bge-reranker-base --port 80
+    command: --model-id cross-encoder/ms-marco-MiniLM-L6-v2 --port 80
     ports:
       - '8090:80'
     volumes:
