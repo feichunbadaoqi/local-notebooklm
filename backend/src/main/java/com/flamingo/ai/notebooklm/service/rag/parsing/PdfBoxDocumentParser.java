@@ -8,8 +8,9 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
-import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 import javax.imageio.ImageIO;
 import lombok.extern.slf4j.Slf4j;
@@ -79,10 +80,30 @@ public class PdfBoxDocumentParser implements DocumentParser {
     double medianFontSize = computeMedianFontSize(lines);
     log.debug("PDF median font size: {}", medianFontSize);
 
+    // Build page-to-character-offset map using the same charOffset logic as buildSections
+    Map<Integer, Integer> pageStartOffsets = buildPageStartOffsets(lines);
+
     List<DocumentSection> sections = buildSections(lines, fullText, medianFontSize);
-    List<ExtractedImage> images = extractImages(pdfDoc);
+    List<ExtractedImage> images = extractImages(pdfDoc, pageStartOffsets);
 
     return new ParsedDocument(fullText, sections, List.of(), images);
+  }
+
+  private Map<Integer, Integer> buildPageStartOffsets(List<LineInfo> lines) {
+    Map<Integer, Integer> pageStartOffsets = new HashMap<>();
+    int charOffset = 0;
+
+    for (LineInfo line : lines) {
+      pageStartOffsets.putIfAbsent(line.pageNumber(), charOffset);
+      if (line.text().isBlank()) {
+        charOffset++;
+      } else {
+        charOffset += line.text().length() + 1;
+      }
+    }
+
+    log.debug("Page start offsets: {}", pageStartOffsets);
+    return pageStartOffsets;
   }
 
   private double computeMedianFontSize(List<LineInfo> lines) {
@@ -120,7 +141,7 @@ public class PdfBoxDocumentParser implements DocumentParser {
         // Finalise previous section content
         if (stack[headingLevel] != null) {
           // Update content (sections are immutable records; we rebuild)
-          replaceContent(stack, headingLevel, currentContent.toString());
+          appendContentToDeepest(stack, headingLevel, currentContent.toString());
           currentContent.setLength(0);
         }
         List<String> breadcrumb = buildBreadcrumb(stack, headingLevel, line.text().trim());
@@ -147,7 +168,7 @@ public class PdfBoxDocumentParser implements DocumentParser {
 
     // Append remaining content to the deepest open section
     if (currentContent.length() > 0) {
-      appendRemainingContent(stack, currentContent.toString());
+      appendContentToDeepest(stack, 1, currentContent.toString());
     }
 
     // If no headings were detected, wrap all content in a single implicit section
@@ -205,41 +226,19 @@ public class PdfBoxDocumentParser implements DocumentParser {
     topLevel.add(section);
   }
 
-  private void replaceContent(DocumentSection[] stack, int fromLevel, String content) {
-    // Append accumulated content to the deepest currently-open section
+  private void appendContentToDeepest(DocumentSection[] stack, int fromLevel, String content) {
     for (int i = 6; i >= fromLevel; i--) {
       if (stack[i] != null) {
-        String merged = stack[i].content() + content;
+        DocumentSection s = stack[i];
         DocumentSection updated =
             new DocumentSection(
-                stack[i].title(),
-                stack[i].level(),
-                stack[i].breadcrumb(),
-                merged,
-                stack[i].children(),
-                stack[i].startOffset(),
-                stack[i].endOffset());
-        // Replace in parent's children list
-        updateSectionInPlace(stack, i, updated);
-        stack[i] = updated;
-        return;
-      }
-    }
-  }
-
-  private void appendRemainingContent(DocumentSection[] stack, String content) {
-    for (int i = 6; i >= 1; i--) {
-      if (stack[i] != null) {
-        String merged = stack[i].content() + content;
-        DocumentSection updated =
-            new DocumentSection(
-                stack[i].title(),
-                stack[i].level(),
-                stack[i].breadcrumb(),
-                merged,
-                stack[i].children(),
-                stack[i].startOffset(),
-                stack[i].endOffset());
+                s.title(),
+                s.level(),
+                s.breadcrumb(),
+                s.content() + content,
+                s.children(),
+                s.startOffset(),
+                s.endOffset());
         updateSectionInPlace(stack, i, updated);
         stack[i] = updated;
         return;
@@ -262,9 +261,10 @@ public class PdfBoxDocumentParser implements DocumentParser {
     // No parent found; top-level update is handled by the caller via stack reference
   }
 
-  private List<ExtractedImage> extractImages(PDDocument pdfDoc) {
+  private List<ExtractedImage> extractImages(
+      PDDocument pdfDoc, Map<Integer, Integer> pageStartOffsets) {
     List<ExtractedImage> images = new ArrayList<>();
-    ImageLocationExtractor extractor = new ImageLocationExtractor();
+    ImageLocationExtractor extractor = new ImageLocationExtractor(pageStartOffsets);
     int pageNumber = 0;
 
     for (PDPage page : pdfDoc.getPages()) {
@@ -334,10 +334,17 @@ public class PdfBoxDocumentParser implements DocumentParser {
     private final List<LineInfo> lines = new ArrayList<>();
     private final List<TextPosition> currentLine = new ArrayList<>();
     private float lastY = Float.NaN;
+    private int currentPageNo = 0;
 
     FontAwareStripper() throws IOException {
       super();
       setSortByPosition(true);
+    }
+
+    @Override
+    protected void startPage(PDPage page) throws IOException {
+      super.startPage(page);
+      currentPageNo = getCurrentPageNo() - 1; // PDFTextStripper uses 1-based
     }
 
     @Override
@@ -379,14 +386,12 @@ public class PdfBoxDocumentParser implements DocumentParser {
               .filter(n -> !n.isBlank())
               .findFirst()
               .orElse("");
-      lines.add(new LineInfo(text, avgSize, fontName));
+      lines.add(new LineInfo(text, avgSize, fontName, currentPageNo));
       currentLine.clear();
     }
 
     List<LineInfo> getLines() {
-      return lines.stream()
-          .sorted(Comparator.comparingInt(l -> 0)) // preserve insertion order
-          .collect(Collectors.toList());
+      return new ArrayList<>(lines);
     }
   }
 
@@ -396,8 +401,9 @@ public class PdfBoxDocumentParser implements DocumentParser {
    * @param text concatenated Unicode text of the line
    * @param avgFontSize average font size across all positions in the line
    * @param fontName name of the dominant font (may contain "Bold" for bold fonts)
+   * @param pageNumber 0-based page number where this line appears
    */
-  record LineInfo(String text, float avgFontSize, String fontName) {}
+  record LineInfo(String text, float avgFontSize, String fontName, int pageNumber) {}
 
   /**
    * Extracts images with spatial position metadata using PDFStreamEngine.
@@ -408,10 +414,12 @@ public class PdfBoxDocumentParser implements DocumentParser {
   private final class ImageLocationExtractor extends PDFStreamEngine {
 
     private final List<ExtractedImage> images = new ArrayList<>();
+    private final Map<Integer, Integer> pageStartOffsets;
     private int currentPageNumber = 0;
     private int imageIndex = 0;
 
-    ImageLocationExtractor() {
+    ImageLocationExtractor(Map<Integer, Integer> pageStartOffsets) {
+      this.pageStartOffsets = pageStartOffsets;
       addOperator(new DrawObject(this));
     }
 
@@ -458,9 +466,8 @@ public class PdfBoxDocumentParser implements DocumentParser {
           float xCoordinate = ctm.getTranslateX();
           float yCoordinate = ctm.getTranslateY();
 
-          // Approximate character offset (rough heuristic based on page number and position)
-          // This will be improved by correlating with text extraction offsets
-          int approximateOffset = extractor.currentPageNumber * 1000;
+          int approximateOffset =
+              extractor.pageStartOffsets.getOrDefault(extractor.currentPageNumber, 0);
 
           ExtractedImage img =
               extractor.convertImageWithPosition(

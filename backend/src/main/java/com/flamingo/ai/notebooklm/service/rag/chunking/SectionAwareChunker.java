@@ -50,11 +50,29 @@ public class SectionAwareChunker implements DocumentChunker {
     if (document.sections().isEmpty()) {
       // Fallback: treat full text as a single implicit section
       List<String> slidingChunks = slidingWindow(document.fullText(), chunkSize, overlap);
+      int cumulativeOffset = 0;
       for (int i = 0; i < slidingChunks.size(); i++) {
-        result.add(new RawDocumentChunk(slidingChunks.get(i), List.of(), i, List.of()));
+        result.add(
+            new RawDocumentChunk(slidingChunks.get(i), List.of(), i, List.of(), cumulativeOffset));
+        cumulativeOffset += slidingChunks.get(i).length();
       }
     } else {
       walkSections(document.sections(), document, chunkSize, overlap, result);
+
+      // Defensive fallback: sections exist but all have empty content
+      if (result.isEmpty() && document.fullText() != null && !document.fullText().isBlank()) {
+        log.warn(
+            "All {} sections produced 0 chunks — falling back to fullText sliding window",
+            document.sections().size());
+        List<String> slidingChunks = slidingWindow(document.fullText(), chunkSize, overlap);
+        int cumulativeOffset = 0;
+        for (int i = 0; i < slidingChunks.size(); i++) {
+          result.add(
+              new RawDocumentChunk(
+                  slidingChunks.get(i), List.of(), i, List.of(), cumulativeOffset));
+          cumulativeOffset += slidingChunks.get(i).length();
+        }
+      }
     }
 
     // Associate images with chunks by approximate offset
@@ -79,9 +97,12 @@ public class SectionAwareChunker implements DocumentChunker {
 
       if (!content.isBlank()) {
         List<String> sectionChunks = chunkSectionContent(content, chunkSize, overlap);
+        int relativeOffset = 0;
         for (String chunk : sectionChunks) {
           int idx = result.size();
-          result.add(new RawDocumentChunk(chunk, breadcrumb, idx, new ArrayList<>()));
+          int docOffset = section.startOffset() + relativeOffset;
+          result.add(new RawDocumentChunk(chunk, breadcrumb, idx, new ArrayList<>(), docOffset));
+          relativeOffset += chunk.length();
         }
       }
 
@@ -262,12 +283,10 @@ public class SectionAwareChunker implements DocumentChunker {
     // Apply grouping strategy to images
     List<ExtractedImage> groupedImages = imageGroupingStrategy.groupImages(document.images());
 
-    // Build chunk start offsets for distance calculations
+    // Build chunk start offsets for distance calculations (using document offsets)
     List<Integer> chunkStarts = new ArrayList<>();
-    int totalChars = 0;
     for (RawDocumentChunk chunk : chunks) {
-      chunkStarts.add(totalChars);
-      totalChars += chunk.content().length();
+      chunkStarts.add(chunk.documentOffset());
     }
 
     // Partition images into grouped and ungrouped (LinkedHashMap preserves insertion order)
@@ -289,9 +308,9 @@ public class SectionAwareChunker implements DocumentChunker {
       int representativeOffset = group.get(0).approximateOffset();
       int bestChunk = findNearestChunk(representativeOffset, chunkStarts);
 
-      for (ExtractedImage img : group) {
-        ((List<Integer>) chunks.get(bestChunk).associatedImageIndices()).add(img.index());
-      }
+      // Add only the first image's index as representative — all indices in a spatial group
+      // map to the same composite image UUID, so one reference is sufficient.
+      ((List<Integer>) chunks.get(bestChunk).associatedImageIndices()).add(group.get(0).index());
 
       log.debug(
           "Assigned spatial group {} ({} images) to chunk {}",

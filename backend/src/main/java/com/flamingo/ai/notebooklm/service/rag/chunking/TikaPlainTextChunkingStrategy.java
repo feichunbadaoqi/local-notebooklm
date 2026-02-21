@@ -62,8 +62,10 @@ public class TikaPlainTextChunkingStrategy implements DocumentChunkingStrategy {
     int overlap = ragConfig.getChunking().getOverlap();
     List<String> rawChunks = slidingWindow(content, chunkSize, overlap);
     List<RawDocumentChunk> result = new ArrayList<>();
+    int cumulativeOffset = 0;
     for (int i = 0; i < rawChunks.size(); i++) {
-      result.add(new RawDocumentChunk(rawChunks.get(i), List.of(), i, List.of()));
+      result.add(new RawDocumentChunk(rawChunks.get(i), List.of(), i, List.of(), cumulativeOffset));
+      cumulativeOffset += rawChunks.get(i).length();
     }
     return result;
   }

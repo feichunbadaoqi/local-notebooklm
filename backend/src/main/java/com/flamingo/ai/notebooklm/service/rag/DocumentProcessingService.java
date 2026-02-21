@@ -13,6 +13,8 @@ import com.flamingo.ai.notebooklm.service.rag.image.ImageStorageService;
 import com.flamingo.ai.notebooklm.service.rag.model.ChunkingResult;
 import com.flamingo.ai.notebooklm.service.rag.model.DocumentContext;
 import com.flamingo.ai.notebooklm.service.rag.model.RawDocumentChunk;
+import com.flamingo.ai.notebooklm.service.rag.summary.ContextualChunkingService;
+import com.flamingo.ai.notebooklm.service.rag.summary.DocumentSummaryService;
 import io.micrometer.core.annotation.Timed;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.io.InputStream;
@@ -45,6 +47,8 @@ public class DocumentProcessingService {
   private final EmbeddingService embeddingService;
   private final DocumentChunkingStrategyRouter strategyRouter;
   private final ImageStorageService imageStorageService;
+  private final DocumentSummaryService documentSummaryService;
+  private final ContextualChunkingService contextualChunkingService;
   private final MeterRegistry meterRegistry;
 
   private static final int MAX_RETRIES = 3;
@@ -91,10 +95,25 @@ public class DocumentProcessingService {
       Map<Integer, String> imageIndexToId =
           imageStorageService.storeImages(
               result.extractedImages(), documentBytes, documentId, document.getSession().getId());
+      log.debug(
+          "Stored {} images for document {} (indices: {})",
+          imageIndexToId.size(),
+          documentId,
+          imageIndexToId.keySet());
+      if (!imageIndexToId.isEmpty()) {
+        log.debug("Image index→ID mapping for document {}: {}", documentId, imageIndexToId);
+      }
 
       // --- 3. Extract document title from first chunk's breadcrumb or filename ---
       String documentTitle = extractDocumentTitle(rawChunks, document.getFileName());
       log.debug("Extracted document title: {}", documentTitle);
+
+      // --- 3.5. Generate document summary ---
+      String summary = documentSummaryService.generateSummary(document.getFileName(), fullText);
+      if (summary != null && !summary.isEmpty()) {
+        log.info("Generated summary for document {} ({} chars)", documentId, summary.length());
+        updateDocumentSummaryWithRetry(documentId, summary);
+      }
 
       // --- 4. Build DocumentChunk objects ---
       List<DocumentChunk> documentChunks = new ArrayList<>();
@@ -112,6 +131,7 @@ public class DocumentProcessingService {
             rawChunk.associatedImageIndices().stream()
                 .filter(imageIndexToId::containsKey)
                 .map(imageIndexToId::get)
+                .distinct()
                 .toList();
 
         // Build content for embedding (include image markers if present)
@@ -137,6 +157,9 @@ public class DocumentProcessingService {
                 .tokenCount(estimateTokenCount(chunkContent))
                 .build());
       }
+
+      // --- 4.5. Generate contextual prefixes (opt-in) ---
+      contextualChunkingService.generatePrefixes(documentChunks, summary, textsToEmbed);
 
       // --- 5. Generate embeddings ---
       log.debug("Generating title and content embeddings for {} chunks...", textsToEmbed.size());
@@ -224,6 +247,15 @@ public class DocumentProcessingService {
         log.info("{}", chunk.getContent());
         log.info("===== CHUNK {} FULL CONTENT END =====", i);
       }
+      for (DocumentChunk chunk : validChunks) {
+        if (chunk.getAssociatedImageIds() != null && !chunk.getAssociatedImageIds().isEmpty()) {
+          log.debug(
+              "Chunk {} has {} imageIds: {}",
+              chunk.getId(),
+              chunk.getAssociatedImageIds().size(),
+              chunk.getAssociatedImageIds());
+        }
+      }
       documentChunkIndexService.indexChunks(validChunks);
       log.info("Elasticsearch indexing complete for document {}", documentId);
       log.info("========== INDEXING COMPLETE ==========");
@@ -233,12 +265,13 @@ public class DocumentProcessingService {
       log.info("Successfully processed document: {}", documentId);
 
     } catch (Exception e) {
-      log.error("Failed to process document {}: {}", documentId, e.getMessage());
+      log.error("Failed to process document {}: {}", documentId, e.getMessage(), e);
       meterRegistry.counter("document.processing.failure").increment();
       try {
         updateDocumentStatusWithRetry(documentId, DocumentStatus.FAILED, null, e.getMessage());
       } catch (Exception retryEx) {
-        log.error("Failed to update document status after retries: {}", retryEx.getMessage());
+        log.error(
+            "Failed to update document status after retries: {}", retryEx.getMessage(), retryEx);
       }
     }
   }
@@ -279,6 +312,40 @@ public class DocumentProcessingService {
         }
         log.warn(
             "SQLite lock contention on document {}, retry {}/{}", documentId, attempt, MAX_RETRIES);
+        try {
+          Thread.sleep(RETRY_DELAY_MS * attempt);
+        } catch (InterruptedException ie) {
+          Thread.currentThread().interrupt();
+          throw new RuntimeException("Interrupted during retry", ie);
+        }
+      }
+    }
+  }
+
+  /** Saves the document summary with retry logic for SQLite lock contention. */
+  @Transactional(propagation = Propagation.REQUIRES_NEW)
+  public void updateDocumentSummaryWithRetry(UUID documentId, String summary) {
+    for (int attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        Document document =
+            documentRepository
+                .findById(documentId)
+                .orElseThrow(
+                    () -> new DocumentProcessingException(documentId, "Document not found"));
+        document.setSummary(summary);
+        documentRepository.saveAndFlush(document);
+        return;
+      } catch (CannotAcquireLockException e) {
+        if (attempt == MAX_RETRIES) {
+          log.error(
+              "Failed to save summary for document {} after {} retries", documentId, MAX_RETRIES);
+          throw e;
+        }
+        log.warn(
+            "SQLite lock contention saving summary for {}, retry {}/{}",
+            documentId,
+            attempt,
+            MAX_RETRIES);
         try {
           Thread.sleep(RETRY_DELAY_MS * attempt);
         } catch (InterruptedException ie) {

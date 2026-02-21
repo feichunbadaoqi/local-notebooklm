@@ -3,7 +3,9 @@ package com.flamingo.ai.notebooklm.service.rag;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -20,6 +22,8 @@ import com.flamingo.ai.notebooklm.service.rag.image.ImageStorageService;
 import com.flamingo.ai.notebooklm.service.rag.model.ChunkingResult;
 import com.flamingo.ai.notebooklm.service.rag.model.DocumentContext;
 import com.flamingo.ai.notebooklm.service.rag.model.RawDocumentChunk;
+import com.flamingo.ai.notebooklm.service.rag.summary.ContextualChunkingService;
+import com.flamingo.ai.notebooklm.service.rag.summary.DocumentSummaryService;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.io.ByteArrayInputStream;
@@ -45,6 +49,8 @@ class DocumentProcessingServiceTest {
   @Mock private DocumentChunkingStrategyRouter strategyRouter;
   @Mock private DocumentChunkingStrategy chunkingStrategy;
   @Mock private ImageStorageService imageStorageService;
+  @Mock private DocumentSummaryService documentSummaryService;
+  @Mock private ContextualChunkingService contextualChunkingService;
 
   @Captor private ArgumentCaptor<List<DocumentChunk>> chunksCaptor;
 
@@ -61,7 +67,11 @@ class DocumentProcessingServiceTest {
             embeddingService,
             strategyRouter,
             imageStorageService,
+            documentSummaryService,
+            contextualChunkingService,
             meterRegistry);
+
+    lenient().when(documentSummaryService.generateSummary(anyString(), anyString())).thenReturn("");
   }
 
   @Test
@@ -87,9 +97,9 @@ class DocumentProcessingServiceTest {
     String content = "First paragraph.\n\nSecond paragraph.\n\nThird paragraph.";
     List<RawDocumentChunk> rawChunks =
         List.of(
-            new RawDocumentChunk("First paragraph.", List.of("Test Document"), 0, List.of()),
-            new RawDocumentChunk("Second paragraph.", List.of("Test Document"), 1, List.of()),
-            new RawDocumentChunk("Third paragraph.", List.of("Test Document"), 2, List.of()));
+            new RawDocumentChunk("First paragraph.", List.of("Test Document"), 0, List.of(), 0),
+            new RawDocumentChunk("Second paragraph.", List.of("Test Document"), 1, List.of(), 17),
+            new RawDocumentChunk("Third paragraph.", List.of("Test Document"), 2, List.of(), 35));
     ChunkingResult chunkingResult = new ChunkingResult(rawChunks, List.of(), content);
     when(chunkingStrategy.chunkDocument(any(InputStream.class), any(DocumentContext.class)))
         .thenReturn(chunkingResult);
@@ -138,7 +148,7 @@ class DocumentProcessingServiceTest {
 
     String content = "Some content without sections.";
     List<RawDocumentChunk> rawChunks =
-        List.of(new RawDocumentChunk(content, List.of(), 0, List.of())); // Empty breadcrumb
+        List.of(new RawDocumentChunk(content, List.of(), 0, List.of(), 0)); // Empty breadcrumb
     ChunkingResult chunkingResult = new ChunkingResult(rawChunks, List.of(), content);
     when(chunkingStrategy.chunkDocument(any(InputStream.class), any(DocumentContext.class)))
         .thenReturn(chunkingResult);
