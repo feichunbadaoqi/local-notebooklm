@@ -343,6 +343,49 @@ class HybridSearchServiceTest {
       assertThat(context).contains("[Source 1:");
       assertThat(context).contains("[Source 2:");
     }
+
+    @Test
+    @DisplayName("should inject image markers when chunk has associated images")
+    void shouldInjectImageMarkers_whenChunkHasImages() {
+      DocumentChunk chunk = createChunk("1", "Text about a diagram.");
+      chunk.setFileName("report.pdf");
+      chunk.setAssociatedImageIds(List.of("aaa-bbb-ccc", "ddd-eee-fff"));
+
+      String context = hybridSearchService.buildContext(List.of(chunk));
+
+      assertThat(context).contains("[IMAGE: report.pdf - Figure 1 - ID: aaa-bbb-ccc]");
+      assertThat(context).contains("[IMAGE: report.pdf - Figure 2 - ID: ddd-eee-fff]");
+    }
+
+    @Test
+    @DisplayName("should not inject image markers when chunk has no images")
+    void shouldNotInjectImageMarkers_whenNoImages() {
+      DocumentChunk chunk = createChunk("1", "Plain text content.");
+      chunk.setFileName("doc.pdf");
+      chunk.setAssociatedImageIds(List.of());
+
+      String context = hybridSearchService.buildContext(List.of(chunk));
+
+      assertThat(context).doesNotContain("[IMAGE:");
+    }
+
+    @Test
+    @DisplayName("should inject image markers for multiple chunks with different images")
+    void shouldInjectImageMarkers_forMultipleChunks() {
+      DocumentChunk chunk1 = createChunk("1", "First chunk.");
+      chunk1.setFileName("a.pdf");
+      chunk1.setAssociatedImageIds(List.of("img-1"));
+
+      DocumentChunk chunk2 = createChunk("2", "Second chunk.");
+      chunk2.setFileName("b.pdf");
+      chunk2.setAssociatedImageIds(List.of("img-2", "img-3"));
+
+      String context = hybridSearchService.buildContext(List.of(chunk1, chunk2));
+
+      assertThat(context).contains("[IMAGE: a.pdf - Figure 1 - ID: img-1]");
+      assertThat(context).contains("[IMAGE: b.pdf - Figure 1 - ID: img-2]");
+      assertThat(context).contains("[IMAGE: b.pdf - Figure 2 - ID: img-3]");
+    }
   }
 
   private DocumentChunk createChunk(String id, String content) {

@@ -128,6 +128,10 @@ public class ChatServiceImpl implements ChatService {
 
     String context = hybridSearchService.buildContext(relevantChunks);
     log.debug("Built context with length: {}", context.length());
+    if (log.isDebugEnabled() && context.contains("[IMAGE:")) {
+      long imageMarkerCount = context.lines().filter(l -> l.contains("[IMAGE:")).count();
+      log.debug("Context contains {} image marker(s) for LLM", imageMarkerCount);
+    }
 
     // Build conversation context (add uncertainty note for medium confidence)
     String systemPromptSuffix = "";

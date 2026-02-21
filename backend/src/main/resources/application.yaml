@@ -123,6 +123,9 @@ rag:
     base-path: data/images         # Root directory for images extracted from documents
     enabled: true                  # Set to false to skip image extraction
     max-file-size-bytes: 10485760  # 10 MB per image limit
+  contextual-chunking:
+    enabled: false                     # Opt-in: generates 1-2 sentence prefix per chunk using LLM
+    max-summary-chars: 2000            # Max chars of document summary sent to LLM per chunk
   image-grouping:
     strategy: spatial              # Options: "spatial" (default) or "page-based"
     spatial:

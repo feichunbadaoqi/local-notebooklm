@@ -135,11 +135,12 @@ public class HybridSearchService {
     for (int i = 0; i < diverseResults.size(); i++) {
       DocumentChunk chunk = diverseResults.get(i);
       log.debug(
-          "  [{}] docId={} score={} file='{}' content='{}'",
+          "  [{}] docId={} score={} file='{}' imageIds={} content='{}'",
           i,
           chunk.getDocumentId(),
           String.format("%.4f", chunk.getRelevanceScore()),
           chunk.getFileName(),
+          chunk.getAssociatedImageIds(),
           chunk.getContent().length() > 100
               ? chunk.getContent().substring(0, 100) + "..."
               : chunk.getContent());
@@ -285,7 +286,30 @@ public class HybridSearchService {
       sourceHeader.append("]\n");
       context.append(sourceHeader);
       context.append(chunk.getContent());
-      context.append("\n\n");
+
+      // Inject image markers at query time so the LLM can reference images in responses.
+      // Markers are not stored in ES content (to keep BM25 clean) but are needed by the LLM.
+      List<String> imageIds = chunk.getAssociatedImageIds();
+      if (imageIds != null && !imageIds.isEmpty()) {
+        log.debug(
+            "Injecting {} image marker(s) for chunk {} from '{}'",
+            imageIds.size(),
+            i,
+            chunk.getFileName());
+        context.append("\n");
+        for (int imgIdx = 0; imgIdx < imageIds.size(); imgIdx++) {
+          context
+              .append("[IMAGE: ")
+              .append(chunk.getFileName())
+              .append(" - Figure ")
+              .append(imgIdx + 1)
+              .append(" - ID: ")
+              .append(imageIds.get(imgIdx))
+              .append("]\n");
+        }
+      }
+
+      context.append("\n");
     }
 
     context.append("=== END DOCUMENT CONTEXT ===");

@@ -46,6 +46,20 @@ public class LangChain4jConfig {
   }
 
   @Bean
+  public ChatModel textChatModel() {
+    validateApiKey();
+
+    return OpenAiChatModel.builder()
+        .apiKey(openAiApiKey)
+        .modelName(chatModelName)
+        .maxCompletionTokens(maxCompletionTokens)
+        .timeout(Duration.ofSeconds(60))
+        .logRequests(false)
+        .logResponses(false)
+        .build();
+  }
+
+  @Bean
   public StreamingChatModel streamingChatModel() {
     validateApiKey();
 

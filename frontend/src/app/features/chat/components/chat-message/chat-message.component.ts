@@ -1,4 +1,4 @@
-import { Component, input, output } from '@angular/core';
+import { Component, ElementRef, HostListener, input, output, signal, viewChild } from '@angular/core';
 import { ChatMessage, Citation } from '../../../../core/models';
 import { DatePipe } from '@angular/common';
 import { marked } from 'marked';
@@ -37,7 +37,7 @@ import { marked } from 'marked';
         <div class="flex-1 max-w-[80%]">
           <div class="message-assistant p-4">
             <div class="prose prose-sm max-w-none">
-              <div [innerHTML]="getRenderedContent()"></div>
+              <div [innerHTML]="getRenderedContent()" #proseContent (click)="onProseClick($event)"></div>
             </div>
           </div>
 
@@ -72,9 +72,10 @@ import { marked } from 'marked';
                     @for (imageId of citation.imageIds; track imageId) {
                       <img
                         [src]="'/api/sessions/' + sessionId() + '/images/' + imageId"
-                        class="max-h-48 rounded border border-border object-contain cursor-pointer"
+                        class="max-w-xs max-h-48 rounded border border-border object-contain cursor-pointer hover:opacity-80 transition-opacity"
                         loading="lazy"
                         [alt]="'Image from ' + citation.fileName"
+                        (click)="openLightbox('/api/sessions/' + sessionId() + '/images/' + imageId)"
                         (error)="onImageError($event)"
                       />
                     }
@@ -113,6 +114,30 @@ import { marked } from 'marked';
         </div>
       </div>
     }
+
+    <!-- Image lightbox -->
+    @if (lightboxSrc()) {
+      <div
+        class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm cursor-zoom-out"
+        (click)="closeLightbox()"
+      >
+        <img
+          [src]="lightboxSrc()"
+          class="max-w-[90vw] max-h-[90vh] object-contain rounded-lg shadow-2xl"
+          alt="Enlarged image"
+          (click)="$event.stopPropagation()"
+        />
+        <button
+          class="absolute top-4 right-4 text-white/80 hover:text-white transition-colors"
+          aria-label="Close"
+          (click)="closeLightbox()"
+        >
+          <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+          </svg>
+        </button>
+      </div>
+    }
   `
 })
 export class ChatMessageComponent {
@@ -120,6 +145,13 @@ export class ChatMessageComponent {
   citationClick = output<Citation>();
   /** Session ID required to build image src URLs. */
   sessionId = input<string | null>(null);
+
+  lightboxSrc = signal<string | null>(null);
+
+  @HostListener('document:keydown.escape')
+  onEscapeKey(): void {
+    this.closeLightbox();
+  }
 
   constructor() {
     // Configure marked options
@@ -155,7 +187,7 @@ export class ChatMessageComponent {
       const imageMarkerPattern = /\[IMAGE:.*?- ID: ([a-f0-9-]+)\]/gi;
       content = content.replace(imageMarkerPattern, (match, imageId) => {
         return `<img src="/api/sessions/${sessionId}/images/${imageId}"
-                     class="max-h-96 rounded border border-border my-4"
+                     class="max-w-sm max-h-64 rounded border border-border my-4 object-contain cursor-pointer hover:opacity-80 transition-opacity"
                      loading="lazy"
                      alt="Document image" />`;
       });
@@ -182,6 +214,23 @@ export class ChatMessageComponent {
     }
 
     return Array.from(seen.values());
+  }
+
+  openLightbox(src: string): void {
+    this.lightboxSrc.set(src);
+  }
+
+  closeLightbox(): void {
+    this.lightboxSrc.set(null);
+  }
+
+  /** Delegate clicks on inline images rendered via innerHTML. */
+  onProseClick(event: Event): void {
+    const target = event.target as HTMLElement;
+    if (target.tagName === 'IMG' && (target as HTMLImageElement).src) {
+      event.preventDefault();
+      this.openLightbox((target as HTMLImageElement).src);
+    }
   }
 
   onImageError(event: Event): void {

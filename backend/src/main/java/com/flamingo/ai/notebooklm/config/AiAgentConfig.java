@@ -2,12 +2,15 @@ package com.flamingo.ai.notebooklm.config;
 
 import com.flamingo.ai.notebooklm.agent.ChatCompactionAgent;
 import com.flamingo.ai.notebooklm.agent.ChatStreamingAgent;
+import com.flamingo.ai.notebooklm.agent.ContextualChunkingAgent;
 import com.flamingo.ai.notebooklm.agent.CrossEncoderRerankerAgent;
+import com.flamingo.ai.notebooklm.agent.DocumentSummaryAgent;
 import com.flamingo.ai.notebooklm.agent.MemoryExtractionAgent;
 import com.flamingo.ai.notebooklm.agent.QueryReformulationAgent;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.service.AiServices;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -65,5 +68,25 @@ public class AiAgentConfig {
     return AiServices.builder(ChatStreamingAgent.class)
         .streamingChatModel(streamingChatModel)
         .build();
+  }
+
+  /**
+   * Document summary agent for generating plain-text summaries after upload. Uses textChatModel (no
+   * JSON response format) for free-form text output.
+   */
+  @Bean
+  public DocumentSummaryAgent documentSummaryAgent(
+      @Qualifier("textChatModel") ChatModel textChatModel) {
+    return AiServices.builder(DocumentSummaryAgent.class).chatModel(textChatModel).build();
+  }
+
+  /**
+   * Contextual chunking agent for generating chunk prefixes. Uses textChatModel (no JSON response
+   * format) for free-form text output.
+   */
+  @Bean
+  public ContextualChunkingAgent contextualChunkingAgent(
+      @Qualifier("textChatModel") ChatModel textChatModel) {
+    return AiServices.builder(ContextualChunkingAgent.class).chatModel(textChatModel).build();
   }
 }

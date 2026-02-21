@@ -55,6 +55,10 @@ public class Document {
   /** Number of chunks created from this document. */
   private Integer chunkCount;
 
+  /** LLM-generated summary of the document content. */
+  @Column(columnDefinition = "TEXT")
+  private String summary;
+
   /** Error message if processing failed. */
   @Column(columnDefinition = "TEXT")
   private String processingError;

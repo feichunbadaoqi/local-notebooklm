@@ -151,25 +151,21 @@ public class EmbeddingService {
       Response<Embedding> response = embeddingModel.embed(prefixedText);
       results.add(toFloatList(response.content().vector()));
     }
-    meterRegistry
-        .counter("embedding.requests.success", "count", String.valueOf(texts.size()))
-        .increment();
+    meterRegistry.counter("embedding.requests.success", "type", "batch").increment();
     return results;
   }
 
   @SuppressWarnings("unused")
   private List<Float> embedTextFallback(String text, Throwable t) {
     log.error("Embedding failed for text, circuit breaker open: {}", t.getMessage());
-    meterRegistry.counter("embedding.requests.failure").increment();
+    meterRegistry.counter("embedding.requests.failure", "type", "single").increment();
     return List.of();
   }
 
   @SuppressWarnings("unused")
   private List<List<Float>> embedTextsFallback(List<String> texts, Throwable t) {
     log.error("Batch embedding failed, circuit breaker open: {}", t.getMessage());
-    meterRegistry
-        .counter("embedding.requests.failure", "count", String.valueOf(texts.size()))
-        .increment();
+    meterRegistry.counter("embedding.requests.failure", "type", "batch").increment();
     return List.of();
   }
 }

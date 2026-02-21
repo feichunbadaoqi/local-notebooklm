@@ -8,6 +8,7 @@ export interface Document {
   status: DocumentStatus;
   chunkCount: number;
   fileSize: number;
+  summary?: string;
   errorMessage?: string;
   processingError?: string;
   createdAt: string;

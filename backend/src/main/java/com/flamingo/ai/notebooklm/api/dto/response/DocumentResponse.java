@@ -23,6 +23,7 @@ public class DocumentResponse {
   private Long fileSize;
   private DocumentStatus status;
   private Integer chunkCount;
+  private String summary;
   private String processingError;
   private LocalDateTime uploadedAt;
   private LocalDateTime processedAt;
@@ -37,6 +38,7 @@ public class DocumentResponse {
         .fileSize(document.getFileSize())
         .status(document.getStatus())
         .chunkCount(document.getChunkCount())
+        .summary(document.getSummary())
         .processingError(document.getProcessingError())
         .uploadedAt(document.getUploadedAt())
         .processedAt(document.getProcessedAt())

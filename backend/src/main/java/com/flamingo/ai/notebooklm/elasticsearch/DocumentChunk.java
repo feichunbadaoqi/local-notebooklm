@@ -48,6 +48,9 @@ public class DocumentChunk implements AbstractElasticsearchIndexService.ScoredDo
   /** UUIDs of {@code DocumentImage} entities associated with this chunk. */
   @Builder.Default private List<String> associatedImageIds = List.of();
 
+  /** LLM-generated contextual prefix situating this chunk within the overall document. */
+  private String contextPrefix;
+
   // Relevance score from search results (set by search methods)
   @Builder.Default private Double relevanceScore = 0.0;
 }

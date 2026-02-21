@@ -106,6 +106,20 @@ import { Document, DocumentStatus } from '../../../../core/models';
                       <span>{{ doc.chunkCount }} chunks</span>
                     }
                   </div>
+                  @if (doc.summary) {
+                    <button
+                      class="flex items-center gap-1 text-xs text-primary mt-1 hover:underline"
+                      (click)="toggleSummary(doc.id, $event)"
+                    >
+                      <svg class="w-3 h-3 transition-transform" [class.rotate-90]="expandedSummaries().has(doc.id)" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+                      </svg>
+                      Summary
+                    </button>
+                    @if (expandedSummaries().has(doc.id)) {
+                      <p class="text-xs text-text-secondary mt-1 leading-relaxed">{{ doc.summary }}</p>
+                    }
+                  }
                 </div>
 
                 <!-- Actions -->
@@ -145,6 +159,7 @@ export class SourcesPanelComponent {
 
   searchQuery = signal('');
   selectedDocumentId = signal<string | null>(null);
+  expandedSummaries = signal<Set<string>>(new Set());
 
   filteredDocuments = () => {
     const query = this.searchQuery().toLowerCase();
@@ -167,6 +182,17 @@ export class SourcesPanelComponent {
   deleteDocument(id: string, event: Event): void {
     event.stopPropagation();
     this.documentDelete.emit(id);
+  }
+
+  toggleSummary(id: string, event: Event): void {
+    event.stopPropagation();
+    const current = new Set(this.expandedSummaries());
+    if (current.has(id)) {
+      current.delete(id);
+    } else {
+      current.add(id);
+    }
+    this.expandedSummaries.set(current);
   }
 
   getStatusLabel(status: DocumentStatus): string {

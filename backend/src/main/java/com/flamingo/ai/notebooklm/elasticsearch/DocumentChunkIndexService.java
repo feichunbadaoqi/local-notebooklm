@@ -157,6 +157,13 @@ public class DocumentChunkIndexService extends AbstractElasticsearchIndexService
     // Structure-aware chunking fields (Phase 2)
     properties.put("sectionBreadcrumb", Property.of(p -> p.keyword(k -> k)));
     properties.put("associatedImageIds", Property.of(p -> p.keyword(k -> k)));
+    properties.put(
+        "contextPrefix",
+        Property.of(
+            p ->
+                p.text(
+                    TextProperty.of(
+                        t -> t.analyzer(textAnalyzer).searchAnalyzer(textSearchAnalyzer)))));
 
     return properties;
   }
@@ -198,6 +205,9 @@ public class DocumentChunkIndexService extends AbstractElasticsearchIndexService
     if (chunk.getAssociatedImageIds() != null && !chunk.getAssociatedImageIds().isEmpty()) {
       document.put("associatedImageIds", chunk.getAssociatedImageIds());
     }
+    if (chunk.getContextPrefix() != null) {
+      document.put("contextPrefix", chunk.getContextPrefix());
+    }
     return document;
   }
 
@@ -234,6 +244,9 @@ public class DocumentChunkIndexService extends AbstractElasticsearchIndexService
     }
     if (source.get("associatedImageIds") != null) {
       builder.associatedImageIds((List<String>) source.get("associatedImageIds"));
+    }
+    if (source.get("contextPrefix") != null) {
+      builder.contextPrefix((String) source.get("contextPrefix"));
     }
 
     return builder.build();
@@ -310,14 +323,7 @@ public class DocumentChunkIndexService extends AbstractElasticsearchIndexService
                                         m ->
                                             m.multiMatch(
                                                 mm ->
-                                                    mm.fields(
-                                                            // "documentTitle^3.0", // 3x boost for
-                                                            // title
-                                                            // "sectionTitle^2.0", // 2x boost for
-                                                            // section
-                                                            // "fileName^1.5", // 1.5x boost for
-                                                            // filename
-                                                            "content^1.0") // Baseline for content
+                                                    mm.fields("content^1.0", "enrichedContent^0.8")
                                                         .query(query)
                                                         .type(TextQueryType.BestFields) // Use best
                                                         // field score

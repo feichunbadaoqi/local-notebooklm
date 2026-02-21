@@ -102,24 +102,12 @@ public class TikaXhtmlDocumentParser implements DocumentParser {
 
     // Append any trailing content
     if (currentContent.length() > 0) {
-      appendContent(stack, currentContent.toString());
+      appendContent(topLevel, stack, currentContent.toString());
     }
 
     // Build full text
     StringBuilder fullText = new StringBuilder();
     collectText(dom.getDocumentElement(), fullText);
-
-    if (topLevel.isEmpty() && fullText.length() > 0) {
-      topLevel.add(
-          new DocumentSection(
-              "Document",
-              1,
-              List.of("Document"),
-              fullText.toString(),
-              List.of(),
-              0,
-              fullText.length()));
-    }
 
     return new ParsedDocument(fullText.toString(), topLevel, tables, List.of());
   }
@@ -149,7 +137,7 @@ public class TikaXhtmlDocumentParser implements DocumentParser {
 
         // Finalise current content
         if (currentContent.length() > 0) {
-          appendContent(stack, currentContent.toString());
+          appendContent(topLevel, stack, currentContent.toString());
           currentContent.setLength(0);
         }
 
@@ -255,7 +243,8 @@ public class TikaXhtmlDocumentParser implements DocumentParser {
     topLevel.add(section);
   }
 
-  private void appendContent(DocumentSection[] stack, String content) {
+  private void appendContent(
+      List<DocumentSection> topLevel, DocumentSection[] stack, String content) {
     for (int i = 6; i >= 1; i--) {
       if (stack[i] != null) {
         String merged = stack[i].content() + content;
@@ -268,14 +257,36 @@ public class TikaXhtmlDocumentParser implements DocumentParser {
                 stack[i].children(),
                 stack[i].startOffset(),
                 stack[i].endOffset());
-        replaceInParent(stack, i, updated);
+        replaceInParent(topLevel, stack, i, updated);
         stack[i] = updated;
         return;
       }
     }
+    // No section in stack — orphan content before first heading
+    if (!topLevel.isEmpty()) {
+      DocumentSection first = topLevel.get(0);
+      DocumentSection updated =
+          new DocumentSection(
+              first.title(),
+              first.level(),
+              first.breadcrumb(),
+              content + first.content(),
+              first.children(),
+              first.startOffset(),
+              first.endOffset());
+      topLevel.set(0, updated);
+      stack[updated.level()] = updated;
+    } else {
+      DocumentSection synthetic =
+          new DocumentSection(
+              "Document", 1, List.of("Document"), content, new ArrayList<>(), 0, content.length());
+      topLevel.add(synthetic);
+      stack[1] = synthetic;
+    }
   }
 
-  private void replaceInParent(DocumentSection[] stack, int level, DocumentSection updated) {
+  private void replaceInParent(
+      List<DocumentSection> topLevel, DocumentSection[] stack, int level, DocumentSection updated) {
     for (int i = level - 1; i >= 1; i--) {
       if (stack[i] != null) {
         List<DocumentSection> children = stack[i].children();
@@ -285,6 +296,10 @@ public class TikaXhtmlDocumentParser implements DocumentParser {
         }
         return;
       }
+    }
+    // No parent found — this is a top-level section, replace in topLevel
+    if (!topLevel.isEmpty()) {
+      topLevel.set(topLevel.size() - 1, updated);
     }
   }
 

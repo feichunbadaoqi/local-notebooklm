@@ -21,6 +21,7 @@ public class RagConfig {
   private Reranking reranking = new Reranking();
   private ImageStorage imageStorage = new ImageStorage();
   private ImageGrouping imageGrouping = new ImageGrouping();
+  private ContextualChunking contextualChunking = new ContextualChunking();
 
   @Getter
   @Setter
@@ -164,5 +165,19 @@ public class RagConfig {
       /** Minimum number of images on a page to form a group. */
       private int minGroupSize = 2;
     }
+  }
+
+  /**
+   * Configuration for contextual chunking (Anthropic's technique). When enabled, generates a 1-2
+   * sentence prefix for each chunk situating it within the overall document context.
+   */
+  @Getter
+  @Setter
+  public static class ContextualChunking {
+    /** Whether contextual chunking is enabled. Disabled by default. */
+    private boolean enabled = false;
+
+    /** Maximum characters of the document summary to include as context for the LLM. */
+    private int maxSummaryChars = 2000;
   }
 }

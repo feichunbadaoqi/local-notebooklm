@@ -11,12 +11,14 @@ import co.elastic.clients.elasticsearch.core.SearchRequest;
 import co.elastic.clients.elasticsearch.core.SearchResponse;
 import co.elastic.clients.elasticsearch.core.search.Hit;
 import co.elastic.clients.elasticsearch.indices.CreateIndexRequest;
+import co.elastic.clients.elasticsearch.indices.PutMappingRequest;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import io.micrometer.core.annotation.Timed;
 import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.annotation.PostConstruct;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
@@ -146,17 +148,13 @@ public abstract class AbstractElasticsearchIndexService<T>
         createIndex();
         log.info("Created Elasticsearch index: {}", getIndexName());
       } else {
-        warnIfMappingMismatch();
+        updateAndValidateMappings();
       }
     } catch (Exception e) {
-      // Log at ERROR (not warn) so failed index initialization is clearly visible.
-      // Not re-thrown to allow the application to start when Elasticsearch is temporarily
-      // unavailable; the error will surface when documents are indexed or searched.
       log.error(
-          "Failed to initialize Elasticsearch index '{}' — index may have incorrect mappings: {}",
-          getIndexName(),
-          e.getMessage(),
-          e);
+          "Failed to initialize Elasticsearch index '{}': {}", getIndexName(), e.getMessage(), e);
+      throw new IllegalStateException(
+          "Failed to initialize Elasticsearch index '" + getIndexName() + "'", e);
     }
   }
 
@@ -173,41 +171,64 @@ public abstract class AbstractElasticsearchIndexService<T>
   }
 
   /**
-   * Checks whether the existing index mappings match what the service defines. Logs an ERROR for
-   * any field whose actual type differs from the expected type (e.g., keyword mapped as text due to
-   * dynamic mapping). The user must delete and recreate the index to fix type mismatches.
+   * Adds missing fields to the existing index and throws on type mismatches.
+   *
+   * <p>Elasticsearch allows adding new fields via the Put Mapping API but does not allow changing
+   * the type of existing fields. Missing fields are added automatically; type mismatches cause the
+   * application to fail fast so the index can be recreated manually.
    */
-  private void warnIfMappingMismatch() {
-    try {
-      Map<String, Property> expectedProperties = defineIndexProperties();
-      var response = elasticsearchClient.indices().getMapping(g -> g.index(getIndexName()));
-      var indexMapping = response.get(getIndexName());
-      if (indexMapping == null) {
-        return;
-      }
-      Map<String, Property> actualProperties = indexMapping.mappings().properties();
+  private void updateAndValidateMappings() throws IOException {
+    Map<String, Property> expectedProperties = defineIndexProperties();
+    var response = elasticsearchClient.indices().getMapping(g -> g.index(getIndexName()));
+    var indexMapping = response.get(getIndexName());
+    if (indexMapping == null) {
+      return;
+    }
+    Map<String, Property> actualProperties = indexMapping.mappings().properties();
 
-      boolean hasMismatch = false;
-      for (Map.Entry<String, Property> entry : expectedProperties.entrySet()) {
-        String field = entry.getKey();
-        Property expected = entry.getValue();
-        Property actual = actualProperties.get(field);
-        if (actual != null && expected._kind() != actual._kind()) {
-          log.error(
-              "Mapping mismatch in index '{}': field '{}' expected type '{}' but found '{}'. "
-                  + "Delete the index and restart the application to apply correct mappings.",
-              getIndexName(),
-              field,
-              expected._kind(),
-              actual._kind());
-          hasMismatch = true;
-        }
+    // Detect type mismatches — these require index recreation and cannot be fixed automatically
+    List<String> mismatches = new ArrayList<>();
+    for (Map.Entry<String, Property> entry : expectedProperties.entrySet()) {
+      String field = entry.getKey();
+      Property expected = entry.getValue();
+      Property actual = actualProperties.get(field);
+      if (actual != null && expected._kind() != actual._kind()) {
+        String msg =
+            String.format(
+                "Mapping mismatch in index '%s': field '%s' expected type '%s' but found '%s'. "
+                    + "Delete the index and restart the application to apply correct mappings.",
+                getIndexName(), field, expected._kind(), actual._kind());
+        log.error(msg);
+        mismatches.add(msg);
       }
-      if (!hasMismatch) {
-        log.debug("Index '{}' mapping verified correctly.", getIndexName());
+    }
+    if (!mismatches.isEmpty()) {
+      throw new IllegalStateException(
+          "Index '"
+              + getIndexName()
+              + "' has incompatible field type(s). "
+              + String.join("; ", mismatches));
+    }
+
+    // Add missing fields via the Put Mapping API
+    Map<String, Property> missingFields = new HashMap<>();
+    for (Map.Entry<String, Property> entry : expectedProperties.entrySet()) {
+      if (!actualProperties.containsKey(entry.getKey())) {
+        missingFields.put(entry.getKey(), entry.getValue());
       }
-    } catch (Exception e) {
-      log.warn("Could not validate mapping for index '{}': {}", getIndexName(), e.getMessage());
+    }
+
+    if (!missingFields.isEmpty()) {
+      PutMappingRequest putRequest =
+          PutMappingRequest.of(p -> p.index(getIndexName()).properties(missingFields));
+      elasticsearchClient.indices().putMapping(putRequest);
+      log.info(
+          "Added {} new field(s) to index '{}': {}",
+          missingFields.size(),
+          getIndexName(),
+          missingFields.keySet());
+    } else {
+      log.debug("Index '{}' mapping verified correctly.", getIndexName());
     }
   }
 
