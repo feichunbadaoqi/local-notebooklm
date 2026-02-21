@@ -27,7 +27,17 @@ services:
       - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
     depends_on:
       - elasticsearch
+  tei-reranker:
+    image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.9
+    container_name: notebooklm-tei-reranker
+    command: --model-id BAAI/bge-reranker-base --port 80
+    ports:
+      - '8090:80'
+    volumes:
+      - tei-model-cache:/data
 
 volumes:
   elasticsearch-data:
+    driver: local
+  tei-model-cache:
     driver: local

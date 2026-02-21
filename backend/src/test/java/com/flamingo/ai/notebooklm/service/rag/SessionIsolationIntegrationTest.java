@@ -14,7 +14,7 @@ import com.flamingo.ai.notebooklm.elasticsearch.DocumentChunk;
 import com.flamingo.ai.notebooklm.elasticsearch.DocumentChunkIndexService;
 import com.flamingo.ai.notebooklm.service.rag.embedding.EmbeddingService;
 import com.flamingo.ai.notebooklm.service.rag.rerank.DiversityReranker;
-import com.flamingo.ai.notebooklm.service.rag.rerank.LLMReranker;
+import com.flamingo.ai.notebooklm.service.rag.rerank.LlmPromptReranker;
 import com.flamingo.ai.notebooklm.service.rag.search.HybridSearchService;
 import dev.langchain4j.model.embedding.EmbeddingModel;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -92,21 +92,19 @@ class SessionIsolationIntegrationTest {
     RagConfig ragConfig = new RagConfig();
     ragConfig.setRetrieval(new RagConfig.Retrieval());
     ragConfig.setDiversity(new RagConfig.Diversity());
-    RagConfig.Reranking reranking = new RagConfig.Reranking();
-    reranking.getCrossEncoder().setEnabled(false);
-    ragConfig.setReranking(reranking);
+    ragConfig.setReranking(new RagConfig.Reranking());
 
     diversityReranker = new DiversityReranker(ragConfig, meterRegistry);
 
-    // LLMReranker with enabled=false (Java default) passes through candidates without LLM calls
-    LLMReranker llmReranker = new LLMReranker(null, meterRegistry);
+    // LlmPromptReranker with enabled=false (Java default) passes through candidates without calls
+    LlmPromptReranker llmPromptReranker = new LlmPromptReranker(null, meterRegistry);
 
     hybridSearchService =
         new HybridSearchService(
             indexService,
             embeddingService,
             diversityReranker,
-            llmReranker,
+            llmPromptReranker,
             ragConfig,
             meterRegistry);
 

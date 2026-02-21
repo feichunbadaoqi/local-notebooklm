@@ -6,7 +6,7 @@ import com.flamingo.ai.notebooklm.elasticsearch.DocumentChunk;
 import com.flamingo.ai.notebooklm.elasticsearch.DocumentChunkIndexService;
 import com.flamingo.ai.notebooklm.service.rag.embedding.EmbeddingService;
 import com.flamingo.ai.notebooklm.service.rag.rerank.DiversityReranker;
-import com.flamingo.ai.notebooklm.service.rag.rerank.LLMReranker;
+import com.flamingo.ai.notebooklm.service.rag.rerank.Reranker;
 import io.micrometer.core.annotation.Timed;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.util.HashMap;
@@ -31,7 +31,7 @@ public class HybridSearchService {
   private final DocumentChunkIndexService documentChunkIndexService;
   private final EmbeddingService embeddingService;
   private final DiversityReranker diversityReranker;
-  private final LLMReranker llmReranker;
+  private final Reranker reranker;
   private final RagConfig ragConfig;
   private final MeterRegistry meterRegistry;
 
@@ -113,16 +113,15 @@ public class HybridSearchService {
         applyRrf(vectorResults, keywordResults, topK * candidateMultiplier, anchorDocumentIds);
     log.debug("Application-side RRF returned {} results", hybridResults.size());
 
-    // Apply LLM reranking
-    log.debug("Applying LLM reranking to {} candidates...", hybridResults.size());
-    List<LLMReranker.ScoredChunk> rerankedScored =
-        llmReranker.rerank(query, hybridResults, topK * 2);
+    // Apply reranking (TEI cross-encoder or LLM prompt-based, selected by rag.reranking.strategy)
+    log.debug("Reranking {} candidates...", hybridResults.size());
+    List<Reranker.ScoredChunk> rerankedScored = reranker.rerank(query, hybridResults, topK * 2);
     List<DocumentChunk> rerankedResults =
         rerankedScored.stream()
             .peek(scored -> scored.chunk().setRelevanceScore(scored.score()))
-            .map(LLMReranker.ScoredChunk::chunk)
+            .map(Reranker.ScoredChunk::chunk)
             .toList();
-    log.debug("LLM reranking returned {} results", rerankedResults.size());
+    log.debug("Reranking returned {} results", rerankedResults.size());
 
     // Apply diversity reranking for multi-document support
     List<DocumentChunk> diverseResults = diversityReranker.rerank(rerankedResults, topK);

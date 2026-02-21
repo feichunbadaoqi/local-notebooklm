@@ -1,7 +1,7 @@
 # NotebookLM Clone - Implementation Plan
 
-> **Last Updated**: 2025-02-10
-> **Status**: Planning Phase
+> **Last Updated**: 2026-02-21
+> **Status**: Active Development
 
 ## Table of Contents
 1. [Overview](#overview)
@@ -146,19 +146,41 @@ Optional (Add Later If Needed)
 │  ┌────────────────────────────────────────────────────────────────┐ │
 │  │                     RAG Pipeline                                │ │
 │  │  Document → Tika Parse → Chunk → Embed → Index                 │ │
-│  │  Query → Embed → Vector Search + BM25 → RRF Fusion → Context   │ │
+│  │  Query → Embed → Vector+BM25 → RRF → Rerank(TEI) → Context    │ │
 │  └────────────────────────────────────────────────────────────────┘ │
-└──────────────────────────┬────────────────────────┬─────────────────┘
-                           │                        │
-                   ┌───────┴───────┐        ┌───────┴───────┐
-                   │    SQLite     │        │ Elasticsearch │
-                   │───────────────│        │───────────────│
-                   │ • Sessions    │        │ • Chunks      │
-                   │ • Documents   │        │ • Embeddings  │
-                   │ • ChatMessages│        │ • BM25 Index  │
-                   │ • ChatSummary │        │               │
-                   │ • Memories    │        │               │
-                   └───────────────┘        └───────────────┘
+└──────────────┬──────────────────┬──────────────────┬──────────────┘
+               │                  │                  │
+       ┌───────┴───────┐  ┌──────┴───────┐  ┌───────┴───────┐
+       │    SQLite     │  │ Elasticsearch │  │  TEI Reranker │
+       │───────────────│  │──────────────│  │───────────────│
+       │ • Sessions    │  │ • Chunks     │  │ bge-reranker  │
+       │ • Documents   │  │ • Embeddings │  │ -base         │
+       │ • ChatMessages│  │ • BM25 Index │  │ (port 8090)   │
+       │ • ChatSummary │  │              │  │               │
+       │ • Memories    │  │              │  │               │
+       └───────────────┘  └──────────────┘  └───────────────┘
+```
+
+### Reranking Strategy
+
+The reranking stage applies semantic scoring to RRF-fused candidates before diversity reranking. Two strategies are available, selected via `rag.reranking.strategy`:
+
+| Strategy | Implementation | Model | Latency | Cost | Deterministic |
+|----------|---------------|-------|---------|------|---------------|
+| **`tei`** (default) | `TeiCrossEncoderReranker` | `BAAI/bge-reranker-base` via TEI | ~50-200ms (CPU) | Zero (local) | Yes |
+| `llm` | `LlmPromptReranker` (deprecated) | OpenAI GPT via chat prompt | ~1-3s | Token costs | No |
+
+**Architecture:**
+- `Reranker` interface abstracts both strategies
+- `@ConditionalOnProperty` selects the active bean at startup
+- TEI runs as a Docker container (`ghcr.io/huggingface/text-embeddings-inference:cpu-1.9`) on port 8090
+- Circuit breaker + retry on TEI calls; fallback returns RRF scores as-is
+
+**TEI API Contract:**
+```
+POST http://localhost:8090/rerank
+Request:  { "query": "...", "texts": ["...", "..."], "raw_scores": false, "truncate": true }
+Response: [{ "index": 0, "score": 0.98 }, { "index": 1, "score": 0.02 }]
 ```
 
 ### Interaction Modes (Implemented via System Prompts)
@@ -713,10 +735,11 @@ data: {"errorId": "uuid", "message": "Service temporarily unavailable"}
 | Dependency | Version | Purpose |
 |------------|---------|---------|
 | Spring Boot | 4.0.2 | Application framework |
-| LangChain4j | 1.0.0-beta1 | LLM integration |
-| Apache Tika | 3.0.0 | Document parsing |
+| LangChain4j | 1.11.0 | LLM integration |
+| Apache Tika | 3.2.3 | Document parsing |
 | SQLite JDBC | 3.45.1.0 | Local database |
-| Elasticsearch | 7.17.10 | Vector search |
+| Elasticsearch | 9.1.4 | Vector + BM25 search |
+| TEI | cpu-1.9 (Docker) | Cross-encoder reranking (`BAAI/bge-reranker-base`) |
 | Resilience4j | 2.2.0 | Circuit breakers |
 | Micrometer | (managed) | Metrics |
-| Testcontainers | 1.19.7 | Integration testing |
+| Testcontainers | 1.20.4 | Integration testing |

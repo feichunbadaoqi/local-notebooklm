@@ -22,20 +22,20 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
 @ExtendWith(MockitoExtension.class)
-@DisplayName("LLMReranker Tests")
-class LLMRerankerTest {
+@DisplayName("LlmPromptReranker Tests")
+class LlmPromptRerankerTest {
 
   @Mock private CrossEncoderRerankerAgent agent;
   @Mock private MeterRegistry meterRegistry;
   @Mock private Counter counter;
 
-  private LLMReranker reranker;
+  private LlmPromptReranker reranker;
 
   @BeforeEach
   void setUp() {
     lenient().when(meterRegistry.counter(anyString())).thenReturn(counter);
 
-    reranker = new LLMReranker(agent, meterRegistry);
+    reranker = new LlmPromptReranker(agent, meterRegistry);
     ReflectionTestUtils.setField(reranker, "batchSize", 20);
     ReflectionTestUtils.setField(reranker, "enabled", true);
   }
@@ -53,7 +53,7 @@ class LLMRerankerTest {
     when(agent.scorePassages(anyString(), anyString()))
         .thenReturn(new RerankingScores(List.of(0.3, 0.9, 0.6)));
 
-    List<LLMReranker.ScoredChunk> results = reranker.rerank(query, candidates, 3);
+    List<Reranker.ScoredChunk> results = reranker.rerank(query, candidates, 3);
 
     assertThat(results).hasSize(3);
     assertThat(results.get(0).score()).isEqualTo(0.9);
@@ -71,7 +71,7 @@ class LLMRerankerTest {
         .thenReturn(
             new RerankingScores(List.of(0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1, 0.05)));
 
-    List<LLMReranker.ScoredChunk> results = reranker.rerank(query, candidates, 5);
+    List<Reranker.ScoredChunk> results = reranker.rerank(query, candidates, 5);
 
     assertThat(results).hasSize(5);
     assertThat(results.get(0).score()).isEqualTo(0.9);
@@ -84,7 +84,7 @@ class LLMRerankerTest {
     List<DocumentChunk> candidates = new ArrayList<>();
     String query = "test query";
 
-    List<LLMReranker.ScoredChunk> results = reranker.rerank(query, candidates, 5);
+    List<Reranker.ScoredChunk> results = reranker.rerank(query, candidates, 5);
 
     assertThat(results).isEmpty();
   }
@@ -102,7 +102,7 @@ class LLMRerankerTest {
         .thenReturn(new RerankingScores(List.of(0.4, 0.3, 0.2, 0.1, 0.05)))
         .thenReturn(new RerankingScores(List.of(0.95, 0.85)));
 
-    List<LLMReranker.ScoredChunk> results = reranker.rerank(query, candidates, 12);
+    List<Reranker.ScoredChunk> results = reranker.rerank(query, candidates, 12);
 
     assertThat(results).hasSize(12);
     assertThat(results.get(0).score()).isEqualTo(0.95);
@@ -119,7 +119,7 @@ class LLMRerankerTest {
     when(agent.scorePassages(anyString(), anyString()))
         .thenReturn(new RerankingScores(List.of(0.9, 0.8, 0.7)));
 
-    List<LLMReranker.ScoredChunk> results = reranker.rerank(query, candidates, 5);
+    List<Reranker.ScoredChunk> results = reranker.rerank(query, candidates, 5);
 
     assertThat(results).hasSize(5);
     assertThat(results.get(0).score()).isEqualTo(0.9);
@@ -138,7 +138,7 @@ class LLMRerankerTest {
     when(agent.scorePassages(anyString(), anyString()))
         .thenReturn(new RerankingScores(List.of(1.5, -0.3, 0.7)));
 
-    List<LLMReranker.ScoredChunk> results = reranker.rerank(query, candidates, 3);
+    List<Reranker.ScoredChunk> results = reranker.rerank(query, candidates, 3);
 
     assertThat(results.get(0).score()).isLessThanOrEqualTo(1.0);
     assertThat(results.get(0).score()).isGreaterThanOrEqualTo(0.0);
@@ -159,7 +159,7 @@ class LLMRerankerTest {
     when(agent.scorePassages(anyString(), anyString()))
         .thenThrow(new RuntimeException("LLM API error"));
 
-    List<LLMReranker.ScoredChunk> results = reranker.rerank(query, candidates, 3);
+    List<Reranker.ScoredChunk> results = reranker.rerank(query, candidates, 3);
 
     assertThat(results).hasSize(3);
     assertThat(results.get(0).score()).isGreaterThan(0.0);
@@ -177,7 +177,7 @@ class LLMRerankerTest {
 
     String query = "test query";
 
-    List<LLMReranker.ScoredChunk> results = reranker.rerank(query, candidates, 3);
+    List<Reranker.ScoredChunk> results = reranker.rerank(query, candidates, 3);
 
     assertThat(results).hasSize(3);
     assertThat(results.get(0).score()).isEqualTo(0.9);

@@ -87,7 +87,14 @@ rag:
     source-anchoring-enabled: true   # Boost chunks from previous response docs on follow-ups
     source-anchoring-boost: 0.3      # Additive RRF boost for anchor document chunks
   reranking:
-    # LLM-based reranking using OpenAI model (see langchain4j.openai.chat-model.model-name)
+    strategy: tei  # "tei" (default, cross-encoder via TEI) or "llm" (OpenAI prompt-based)
+    tei:
+      base-url: http://localhost:8090
+      model-id: BAAI/bge-reranker-base
+      truncate: true
+      raw-scores: false
+      connect-timeout-ms: 5000
+      read-timeout-ms: 10000
     llm:
       enabled: true
       batch-size: 30  # Fits EXPLORING mode: 8 topK × 3 multiplier = 24 candidates in one batch
@@ -157,6 +164,10 @@ resilience4j:
         base-config: default
         failure-rate-threshold: 50
         wait-duration-in-open-state: 10s
+      tei:
+        base-config: default
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 10s
 
   retry:
     configs:
@@ -177,6 +188,13 @@ resilience4j:
         base-config: default
         max-attempts: 3
         wait-duration: 500ms
+      tei:
+        base-config: default
+        max-attempts: 2
+        wait-duration: 500ms
+        retry-exceptions:
+          - java.net.SocketTimeoutException
+          - java.io.IOException
 
   timelimiter:
     configs:
@@ -187,6 +205,8 @@ resilience4j:
         timeout-duration: 60s
       elasticsearch:
         timeout-duration: 10s
+      tei:
+        timeout-duration: 15s
 
 # ============ Actuator & Metrics ============
 management:

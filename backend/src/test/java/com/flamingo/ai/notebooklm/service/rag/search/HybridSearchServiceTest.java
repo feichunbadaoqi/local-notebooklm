@@ -15,7 +15,7 @@ import com.flamingo.ai.notebooklm.elasticsearch.DocumentChunk;
 import com.flamingo.ai.notebooklm.elasticsearch.DocumentChunkIndexService;
 import com.flamingo.ai.notebooklm.service.rag.embedding.EmbeddingService;
 import com.flamingo.ai.notebooklm.service.rag.rerank.DiversityReranker;
-import com.flamingo.ai.notebooklm.service.rag.rerank.LLMReranker;
+import com.flamingo.ai.notebooklm.service.rag.rerank.Reranker;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
@@ -35,7 +35,7 @@ class HybridSearchServiceTest {
   @Mock private DocumentChunkIndexService documentChunkIndexService;
   @Mock private EmbeddingService embeddingService;
   @Mock private DiversityReranker diversityReranker;
-  @Mock private LLMReranker llmReranker;
+  @Mock private Reranker reranker;
   @Mock private MeterRegistry meterRegistry;
   @Mock private Counter counter;
   @Mock private Timer timer;
@@ -57,7 +57,7 @@ class HybridSearchServiceTest {
             documentChunkIndexService,
             embeddingService,
             diversityReranker,
-            llmReranker,
+            reranker,
             ragConfig,
             meterRegistry);
 
@@ -97,11 +97,11 @@ class HybridSearchServiceTest {
             .thenReturn(List.of(chunk1, chunk2));
         when(documentChunkIndexService.keywordSearch(eq(sessionId), anyString(), anyInt()))
             .thenReturn(List.of(chunk2, chunk3));
-        when(llmReranker.rerank(anyString(), any(), anyInt()))
+        when(reranker.rerank(anyString(), any(), anyInt()))
             .thenAnswer(
                 invocation -> {
                   List<DocumentChunk> chunks = invocation.getArgument(1);
-                  return chunks.stream().map(c -> new LLMReranker.ScoredChunk(c, 0.8)).toList();
+                  return chunks.stream().map(c -> new Reranker.ScoredChunk(c, 0.8)).toList();
                 });
         when(diversityReranker.rerank(any(), anyInt()))
             .thenAnswer(invocation -> invocation.getArgument(0));
@@ -113,7 +113,7 @@ class HybridSearchServiceTest {
         verify(embeddingService).embedQuery("test query");
         verify(documentChunkIndexService).vectorSearch(eq(sessionId), eq(embedding), anyInt());
         verify(documentChunkIndexService).keywordSearch(eq(sessionId), eq("test query"), anyInt());
-        verify(llmReranker).rerank(anyString(), any(), anyInt());
+        verify(reranker).rerank(anyString(), any(), anyInt());
         verify(diversityReranker).rerank(any(), anyInt());
       }
     }
@@ -134,11 +134,11 @@ class HybridSearchServiceTest {
             .thenReturn(List.of(vectorChunk));
         when(documentChunkIndexService.keywordSearch(eq(sessionId), anyString(), anyInt()))
             .thenReturn(List.of(keywordChunk));
-        when(llmReranker.rerank(anyString(), any(), anyInt()))
+        when(reranker.rerank(anyString(), any(), anyInt()))
             .thenAnswer(
                 invocation -> {
                   List<DocumentChunk> chunks = invocation.getArgument(1);
-                  return chunks.stream().map(c -> new LLMReranker.ScoredChunk(c, 0.7)).toList();
+                  return chunks.stream().map(c -> new Reranker.ScoredChunk(c, 0.7)).toList();
                 });
         when(diversityReranker.rerank(any(), anyInt()))
             .thenAnswer(invocation -> invocation.getArgument(0));
@@ -166,7 +166,7 @@ class HybridSearchServiceTest {
             .thenReturn(List.of());
         when(documentChunkIndexService.keywordSearch(eq(sessionId), anyString(), anyInt()))
             .thenReturn(List.of());
-        when(llmReranker.rerank(anyString(), any(), anyInt())).thenReturn(List.of());
+        when(reranker.rerank(anyString(), any(), anyInt())).thenReturn(List.of());
         when(diversityReranker.rerank(any(), anyInt())).thenReturn(List.of());
 
         List<DocumentChunk> results =
@@ -219,11 +219,11 @@ class HybridSearchServiceTest {
             .thenReturn(List.of(chunk1, chunk2));
         when(documentChunkIndexService.keywordSearch(eq(sessionId), anyString(), anyInt()))
             .thenReturn(List.of(chunk1, chunk2));
-        when(llmReranker.rerank(anyString(), any(), anyInt()))
+        when(reranker.rerank(anyString(), any(), anyInt()))
             .thenAnswer(
                 invocation -> {
                   List<DocumentChunk> chunks = invocation.getArgument(1);
-                  return chunks.stream().map(c -> new LLMReranker.ScoredChunk(c, 0.8)).toList();
+                  return chunks.stream().map(c -> new Reranker.ScoredChunk(c, 0.8)).toList();
                 });
         when(diversityReranker.rerank(any(), anyInt()))
             .thenAnswer(invocation -> invocation.getArgument(0));
@@ -273,11 +273,11 @@ class HybridSearchServiceTest {
             .thenReturn(List.of(otherChunk, anchorChunk));
         when(documentChunkIndexService.keywordSearch(eq(sessionId), anyString(), anyInt()))
             .thenReturn(List.of(otherChunk, anchorChunk));
-        when(llmReranker.rerank(anyString(), any(), anyInt()))
+        when(reranker.rerank(anyString(), any(), anyInt()))
             .thenAnswer(
                 invocation -> {
                   List<DocumentChunk> chunks = invocation.getArgument(1);
-                  return chunks.stream().map(c -> new LLMReranker.ScoredChunk(c, 0.8)).toList();
+                  return chunks.stream().map(c -> new Reranker.ScoredChunk(c, 0.8)).toList();
                 });
         when(diversityReranker.rerank(any(), anyInt()))
             .thenAnswer(invocation -> invocation.getArgument(0));

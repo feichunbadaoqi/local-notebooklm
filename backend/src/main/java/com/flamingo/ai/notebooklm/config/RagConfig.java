@@ -85,14 +85,24 @@ public class RagConfig {
   @Getter
   @Setter
   public static class Reranking {
-    private CrossEncoder crossEncoder = new CrossEncoder();
+    /**
+     * Reranking strategy: "tei" (default, cross-encoder via TEI) or "llm" (OpenAI prompt-based).
+     */
+    private String strategy = "tei";
+
+    private Tei tei = new Tei();
     private Llm llm = new Llm();
 
+    /** Configuration for TEI (Text Embeddings Inference) cross-encoder reranker. */
     @Getter
     @Setter
-    public static class CrossEncoder {
-      private boolean enabled = true;
-      private String modelId = "elastic-rerank";
+    public static class Tei {
+      private String baseUrl = "http://localhost:8090";
+      private String modelId = "cross-encoder/ms-marco-MiniLM-L6-v2";
+      private boolean truncate = true;
+      private boolean rawScores = false;
+      private int connectTimeoutMs = 5000;
+      private int readTimeoutMs = 10000;
     }
 
     @Getter

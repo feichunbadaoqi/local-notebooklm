@@ -11,20 +11,26 @@ import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 
 /**
- * LLM-based semantic reranking using OpenAI chat model (see application.yaml:
- * langchain4j.openai.chat-model.model-name). Scores query-passage relevance by calling OpenAI's
- * chat model to evaluate relevance. Provides semantic reranking after RRF fusion.
+ * LLM prompt-based reranking using OpenAI chat model. Scores query-passage relevance by calling
+ * OpenAI's chat model to evaluate relevance via a structured prompt.
  *
- * <p>Note: This is NOT a true cross-encoder model, but uses an LLM to perform semantic scoring. For
- * true cross-encoder reranking, see CrossEncoderRerankService.
+ * <p>This is NOT a true cross-encoder model. For fast, deterministic cross-encoder reranking, use
+ * {@link TeiCrossEncoderReranker} (the default strategy) instead.
+ *
+ * @deprecated Prefer TEI cross-encoder reranker (default). This LLM-based approach is slower (~1-3s
+ *     per API call), more expensive (token costs), and non-deterministic. Select with {@code
+ *     rag.reranking.strategy=llm}.
  */
+@Deprecated(since = "TEI cross-encoder reranker available")
 @Service
+@ConditionalOnProperty(name = "rag.reranking.strategy", havingValue = "llm")
 @RequiredArgsConstructor
 @Slf4j
-public class LLMReranker {
+public class LlmPromptReranker implements Reranker {
 
   private final CrossEncoderRerankerAgent agent;
   private final MeterRegistry meterRegistry;
@@ -35,14 +41,7 @@ public class LLMReranker {
   @Value("${rag.reranking.llm.enabled:false}")
   private boolean enabled;
 
-  /**
-   * Reranks candidates using LLM-based scoring (query-passage semantic matching).
-   *
-   * @param query the search query
-   * @param candidates candidate chunks from RRF fusion
-   * @param topK number of results to return
-   * @return top K reranked chunks with scores
-   */
+  @Override
   @Timed(value = "rag.rerank.llm", description = "Time for LLM reranking")
   public List<ScoredChunk> rerank(String query, List<DocumentChunk> candidates, int topK) {
     if (!enabled) {
@@ -105,12 +104,6 @@ public class LLMReranker {
     return scoredChunks.stream().limit(topK).toList();
   }
 
-  /**
-   * Builds formatted passages string for agent.
-   *
-   * @param batch batch of candidate chunks
-   * @return formatted passages string
-   */
   private String buildPassagesString(List<DocumentChunk> batch) {
     StringBuilder sb = new StringBuilder();
 
@@ -128,7 +121,4 @@ public class LLMReranker {
 
     return sb.toString();
   }
-
-  /** Scored chunk with relevance score. */
-  public record ScoredChunk(DocumentChunk chunk, double score) {}
 }
