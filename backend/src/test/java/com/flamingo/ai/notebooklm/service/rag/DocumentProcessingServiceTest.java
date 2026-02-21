@@ -7,11 +7,9 @@ import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.flamingo.ai.notebooklm.config.RagConfig;
 import com.flamingo.ai.notebooklm.domain.entity.Document;
 import com.flamingo.ai.notebooklm.domain.entity.Session;
 import com.flamingo.ai.notebooklm.domain.enums.DocumentStatus;
-import com.flamingo.ai.notebooklm.domain.repository.DocumentImageRepository;
 import com.flamingo.ai.notebooklm.domain.repository.DocumentRepository;
 import com.flamingo.ai.notebooklm.elasticsearch.DocumentChunk;
 import com.flamingo.ai.notebooklm.elasticsearch.DocumentChunkIndexService;
@@ -42,14 +40,11 @@ import org.mockito.junit.jupiter.MockitoExtension;
 class DocumentProcessingServiceTest {
 
   @Mock private DocumentRepository documentRepository;
-  @Mock private DocumentImageRepository documentImageRepository;
   @Mock private DocumentChunkIndexService documentChunkIndexService;
   @Mock private EmbeddingService embeddingService;
-  @Mock private DocumentMetadataExtractor metadataExtractor;
   @Mock private DocumentChunkingStrategyRouter strategyRouter;
   @Mock private DocumentChunkingStrategy chunkingStrategy;
   @Mock private ImageStorageService imageStorageService;
-  @Mock private RagConfig ragConfig;
 
   @Captor private ArgumentCaptor<List<DocumentChunk>> chunksCaptor;
 
@@ -64,10 +59,8 @@ class DocumentProcessingServiceTest {
             documentRepository,
             documentChunkIndexService,
             embeddingService,
-            metadataExtractor,
             strategyRouter,
             imageStorageService,
-            ragConfig,
             meterRegistry);
   }
 
@@ -94,25 +87,19 @@ class DocumentProcessingServiceTest {
     String content = "First paragraph.\n\nSecond paragraph.\n\nThird paragraph.";
     List<RawDocumentChunk> rawChunks =
         List.of(
-            new RawDocumentChunk("First paragraph.", List.of("Section"), 0, List.of()),
-            new RawDocumentChunk("Second paragraph.", List.of("Section"), 1, List.of()),
-            new RawDocumentChunk("Third paragraph.", List.of("Section"), 2, List.of()));
+            new RawDocumentChunk("First paragraph.", List.of("Test Document"), 0, List.of()),
+            new RawDocumentChunk("Second paragraph.", List.of("Test Document"), 1, List.of()),
+            new RawDocumentChunk("Third paragraph.", List.of("Test Document"), 2, List.of()));
     ChunkingResult chunkingResult = new ChunkingResult(rawChunks, List.of(), content);
     when(chunkingStrategy.chunkDocument(any(InputStream.class), any(DocumentContext.class)))
         .thenReturn(chunkingResult);
 
-    when(ragConfig.getMetadata()).thenReturn(createMetadataConfig(true, true, true));
     when(embeddingService.embedTexts(anyList()))
         .thenAnswer(
             invocation -> {
               List<String> texts = invocation.getArgument(0);
               return texts.stream().map(t -> List.of(0.1f, 0.2f, 0.3f)).toList();
             });
-    when(metadataExtractor.extractTitle(any(), any())).thenReturn("Test Document");
-    when(metadataExtractor.extractKeywords(any())).thenReturn(List.of("test"));
-    when(metadataExtractor.extractKeywords(any(), any(Integer.class))).thenReturn(List.of("test"));
-    when(metadataExtractor.buildEnrichedContent(any(), any(), any(), any()))
-        .thenAnswer(invocation -> invocation.getArgument(0));
 
     // When
     InputStream inputStream = new ByteArrayInputStream(content.getBytes(StandardCharsets.UTF_8));
@@ -124,7 +111,57 @@ class DocumentProcessingServiceTest {
     verify(documentChunkIndexService).indexChunks(chunksCaptor.capture());
     List<DocumentChunk> indexedChunks = chunksCaptor.getValue();
     assertThat(indexedChunks).hasSize(3);
-    assertThat(indexedChunks.get(0).getSectionBreadcrumb()).contains("Section");
+    assertThat(indexedChunks.get(0).getSectionBreadcrumb()).contains("Test Document");
+    // Document title should be extracted from first chunk's breadcrumb
+    assertThat(indexedChunks.get(0).getDocumentTitle()).isEqualTo("Test Document");
+  }
+
+  @Test
+  void shouldExtractTitleFromFilename_whenNoBreadcrumb() throws Exception {
+    // Given
+    UUID documentId = UUID.randomUUID();
+    UUID sessionId = UUID.randomUUID();
+
+    Session session = new Session();
+    session.setId(sessionId);
+
+    Document document = new Document();
+    document.setId(documentId);
+    document.setFileName("my_test_document.txt");
+    document.setMimeType("text/plain");
+    document.setSession(session);
+    document.setStatus(DocumentStatus.PENDING);
+
+    when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
+    when(documentRepository.saveAndFlush(any(Document.class))).thenReturn(document);
+    when(strategyRouter.route("text/plain")).thenReturn(chunkingStrategy);
+
+    String content = "Some content without sections.";
+    List<RawDocumentChunk> rawChunks =
+        List.of(new RawDocumentChunk(content, List.of(), 0, List.of())); // Empty breadcrumb
+    ChunkingResult chunkingResult = new ChunkingResult(rawChunks, List.of(), content);
+    when(chunkingStrategy.chunkDocument(any(InputStream.class), any(DocumentContext.class)))
+        .thenReturn(chunkingResult);
+
+    when(embeddingService.embedTexts(anyList()))
+        .thenAnswer(
+            invocation -> {
+              List<String> texts = invocation.getArgument(0);
+              return texts.stream().map(t -> List.of(0.1f, 0.2f, 0.3f)).toList();
+            });
+
+    // When
+    InputStream inputStream = new ByteArrayInputStream(content.getBytes(StandardCharsets.UTF_8));
+    service.processDocumentAsync(documentId, inputStream);
+
+    Thread.sleep(1000);
+
+    // Then
+    verify(documentChunkIndexService).indexChunks(chunksCaptor.capture());
+    List<DocumentChunk> indexedChunks = chunksCaptor.getValue();
+    assertThat(indexedChunks).hasSize(1);
+    // Document title should fall back to cleaned filename
+    assertThat(indexedChunks.get(0).getDocumentTitle()).isEqualTo("My test document");
   }
 
   @Test
@@ -161,20 +198,5 @@ class DocumentProcessingServiceTest {
     verify(documentRepository, atLeastOnce()).saveAndFlush(any(Document.class));
     // The failure counter should be incremented
     assertThat(meterRegistry.counter("document.processing.failure").count()).isEqualTo(1.0);
-  }
-
-  private RagConfig.Metadata createMetadataConfig(
-      boolean extractSections, boolean extractKeywords, boolean enrichChunks) {
-    RagConfig.Metadata config = new RagConfig.Metadata();
-    config.setExtractSections(extractSections);
-    config.setExtractKeywords(extractKeywords);
-    config.setEnrichChunks(enrichChunks);
-    return config;
-  }
-
-  private RagConfig.ImageStorage createImageStorageConfig() {
-    RagConfig.ImageStorage config = new RagConfig.ImageStorage();
-    config.setEnabled(false); // Disable image storage in tests
-    return config;
   }
 }

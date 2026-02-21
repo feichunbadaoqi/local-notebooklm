@@ -16,7 +16,6 @@ public class RagConfig {
   private Retrieval retrieval = new Retrieval();
   private Compaction compaction = new Compaction();
   private Memory memory = new Memory();
-  private Metadata metadata = new Metadata();
   private Diversity diversity = new Diversity();
   private QueryReformulation queryReformulation = new QueryReformulation();
   private Reranking reranking = new Reranking();
@@ -62,15 +61,6 @@ public class RagConfig {
     private int contextLimit = 5;
     private Float semanticWeight = 0.7f; // 70% semantic relevance, 30% importance
     private Integer candidatePoolMultiplier = 3; // Fetch 3x candidates for reranking
-  }
-
-  @Getter
-  @Setter
-  public static class Metadata {
-    private boolean extractKeywords = true;
-    private int maxKeywords = 10;
-    private boolean extractSections = true;
-    private boolean enrichChunks = true;
   }
 
   @Getter

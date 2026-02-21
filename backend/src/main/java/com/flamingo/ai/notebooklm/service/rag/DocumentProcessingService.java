@@ -1,6 +1,5 @@
 package com.flamingo.ai.notebooklm.service.rag;
 
-import com.flamingo.ai.notebooklm.config.RagConfig;
 import com.flamingo.ai.notebooklm.domain.entity.Document;
 import com.flamingo.ai.notebooklm.domain.enums.DocumentStatus;
 import com.flamingo.ai.notebooklm.domain.repository.DocumentRepository;
@@ -44,10 +43,8 @@ public class DocumentProcessingService {
   private final DocumentRepository documentRepository;
   private final DocumentChunkIndexService documentChunkIndexService;
   private final EmbeddingService embeddingService;
-  private final DocumentMetadataExtractor metadataExtractor;
   private final DocumentChunkingStrategyRouter strategyRouter;
   private final ImageStorageService imageStorageService;
-  private final RagConfig ragConfig;
   private final MeterRegistry meterRegistry;
 
   private static final int MAX_RETRIES = 3;
@@ -95,14 +92,9 @@ public class DocumentProcessingService {
           imageStorageService.storeImages(
               result.extractedImages(), documentBytes, documentId, document.getSession().getId());
 
-      // --- 3. Extract document-level metadata ---
-      String documentTitle =
-          metadataExtractor.extractTitle(fullText != null ? fullText : "", document.getFileName());
-      List<String> documentKeywords =
-          ragConfig.getMetadata().isExtractKeywords()
-              ? metadataExtractor.extractKeywords(fullText != null ? fullText : "")
-              : List.of();
-      log.debug("Extracted metadata - title: {}, keywords: {}", documentTitle, documentKeywords);
+      // --- 3. Extract document title from first chunk's breadcrumb or filename ---
+      String documentTitle = extractDocumentTitle(rawChunks, document.getFileName());
+      log.debug("Extracted document title: {}", documentTitle);
 
       // --- 4. Build DocumentChunk objects ---
       List<DocumentChunk> documentChunks = new ArrayList<>();
@@ -112,21 +104,8 @@ public class DocumentProcessingService {
         String chunkContent = rawChunk.content();
         List<String> breadcrumb = rawChunk.sectionBreadcrumb();
 
-        // Use breadcrumb join as the section title for backward-compatible metadata
+        // Use breadcrumb join as the section title
         String sectionTitle = breadcrumb.isEmpty() ? null : String.join(" > ", breadcrumb);
-
-        // Chunk-specific keywords
-        List<String> chunkKeywords =
-            ragConfig.getMetadata().isExtractKeywords()
-                ? metadataExtractor.extractKeywords(chunkContent, 5)
-                : List.of();
-
-        // Build enriched content for embedding
-        String enrichedContent =
-            ragConfig.getMetadata().isEnrichChunks()
-                ? metadataExtractor.buildEnrichedContent(
-                    chunkContent, documentTitle, sectionTitle, chunkKeywords)
-                : chunkContent;
 
         // Map image indices → UUIDs for this chunk
         List<String> chunkImageIds =
@@ -135,13 +114,13 @@ public class DocumentProcessingService {
                 .map(imageIndexToId::get)
                 .toList();
 
-        // Embed image markers in enriched content (for LLM to reference)
+        // Build content for embedding (include image markers if present)
+        String contentToEmbed = chunkContent;
         if (!chunkImageIds.isEmpty()) {
-          enrichedContent =
-              embedImageMarkers(enrichedContent, chunkImageIds, document.getFileName());
+          contentToEmbed = embedImageMarkers(chunkContent, chunkImageIds, document.getFileName());
         }
 
-        textsToEmbed.add(enrichedContent);
+        textsToEmbed.add(contentToEmbed);
 
         documentChunks.add(
             DocumentChunk.builder()
@@ -154,8 +133,6 @@ public class DocumentProcessingService {
                 .documentTitle(documentTitle)
                 .sectionTitle(sectionTitle)
                 .sectionBreadcrumb(breadcrumb)
-                .keywords(chunkKeywords)
-                .enrichedContent(enrichedContent)
                 .associatedImageIds(chunkImageIds)
                 .tokenCount(estimateTokenCount(chunkContent))
                 .build());
@@ -339,5 +316,48 @@ public class DocumentProcessingService {
 
   private int estimateTokenCount(String text) {
     return text.length() / 4;
+  }
+
+  /**
+   * Extracts document title from the first chunk's breadcrumb or falls back to cleaned filename.
+   *
+   * <p>The document parsers build hierarchical breadcrumbs where the first element of a top-level
+   * section is typically the document title (e.g., from the first H1 heading).
+   *
+   * @param chunks the parsed document chunks
+   * @param fileName the document filename (fallback)
+   * @return the extracted document title
+   */
+  private String extractDocumentTitle(List<RawDocumentChunk> chunks, String fileName) {
+    // Try to get title from first chunk's breadcrumb (first element is typically document title)
+    for (RawDocumentChunk chunk : chunks) {
+      List<String> breadcrumb = chunk.sectionBreadcrumb();
+      if (breadcrumb != null && !breadcrumb.isEmpty()) {
+        return breadcrumb.get(0);
+      }
+    }
+
+    // Fall back to cleaned filename
+    return cleanFileName(fileName);
+  }
+
+  /**
+   * Cleans a filename for use as a document title.
+   *
+   * @param fileName the raw filename
+   * @return cleaned title
+   */
+  private String cleanFileName(String fileName) {
+    if (fileName == null || fileName.isBlank()) {
+      return "Unknown Document";
+    }
+    // Remove extension and replace underscores/dashes with spaces
+    String name = fileName.replaceFirst("\\.[^.]+$", "");
+    name = name.replaceAll("[_-]", " ");
+    // Capitalize first letter
+    if (!name.isEmpty()) {
+      name = Character.toUpperCase(name.charAt(0)) + name.substring(1);
+    }
+    return name;
   }
 }
