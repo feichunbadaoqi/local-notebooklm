@@ -6,7 +6,10 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.flamingo.ai.notebooklm.agent.DocumentAnalysisAgent;
 import com.flamingo.ai.notebooklm.agent.DocumentSummaryAgent;
+import com.flamingo.ai.notebooklm.agent.dto.DocumentAnalysisResult;
+import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -19,19 +22,20 @@ import org.mockito.junit.jupiter.MockitoExtension;
 class DocumentSummaryServiceImplTest {
 
   @Mock private DocumentSummaryAgent documentSummaryAgent;
+  @Mock private DocumentAnalysisAgent documentAnalysisAgent;
 
   @InjectMocks private DocumentSummaryServiceImpl service;
 
   @Test
-  @DisplayName("should generate summary for valid content")
+  @DisplayName("should generate summary via analyzeDocument for valid content")
   void shouldGenerateSummary_whenValidContent() {
-    when(documentSummaryAgent.summarize(anyString(), anyString()))
-        .thenReturn("A concise summary of the document.");
+    when(documentAnalysisAgent.analyze(anyString(), anyString()))
+        .thenReturn(new DocumentAnalysisResult("A concise summary of the document.", List.of()));
 
     String result = service.generateSummary("report.pdf", "Some document content here.");
 
     assertThat(result).isEqualTo("A concise summary of the document.");
-    verify(documentSummaryAgent).summarize("report.pdf", "Some document content here.");
+    verify(documentAnalysisAgent).analyze("report.pdf", "Some document content here.");
   }
 
   @Test
@@ -40,7 +44,7 @@ class DocumentSummaryServiceImplTest {
     String result = service.generateSummary("empty.pdf", "   ");
 
     assertThat(result).isEmpty();
-    verify(documentSummaryAgent, never()).summarize(anyString(), anyString());
+    verify(documentAnalysisAgent, never()).analyze(anyString(), anyString());
   }
 
   @Test
@@ -49,30 +53,72 @@ class DocumentSummaryServiceImplTest {
     String result = service.generateSummary("null.pdf", null);
 
     assertThat(result).isEmpty();
-    verify(documentSummaryAgent, never()).summarize(anyString(), anyString());
+    verify(documentAnalysisAgent, never()).analyze(anyString(), anyString());
   }
 
   @Test
   @DisplayName("should truncate input to 12000 chars")
   void shouldTruncateInput_whenExceedsMaxChars() {
     String longContent = "a".repeat(20_000);
-    when(documentSummaryAgent.summarize(anyString(), anyString())).thenReturn("Summary.");
+    when(documentAnalysisAgent.analyze(anyString(), anyString()))
+        .thenReturn(new DocumentAnalysisResult("Summary.", List.of()));
 
     service.generateSummary("big.pdf", longContent);
 
     ArgumentCaptor<String> contentCaptor = ArgumentCaptor.forClass(String.class);
-    verify(documentSummaryAgent).summarize(anyString(), contentCaptor.capture());
+    verify(documentAnalysisAgent).analyze(anyString(), contentCaptor.capture());
     assertThat(contentCaptor.getValue()).hasSize(12_000);
   }
 
   @Test
-  @DisplayName("should return empty string on agent failure")
-  void shouldReturnEmpty_whenAgentFails() {
-    when(documentSummaryAgent.summarize(anyString(), anyString()))
+  @DisplayName("should fall back to summary-only agent on analysis failure")
+  void shouldFallback_whenAnalysisAgentFails() {
+    when(documentAnalysisAgent.analyze(anyString(), anyString()))
         .thenThrow(new RuntimeException("LLM error"));
+    when(documentSummaryAgent.summarize(anyString(), anyString())).thenReturn("Fallback summary.");
+
+    String result = service.generateSummary("fail.pdf", "content");
+
+    assertThat(result).isEqualTo("Fallback summary.");
+    verify(documentSummaryAgent).summarize("fail.pdf", "content");
+  }
+
+  @Test
+  @DisplayName("should return empty string when both agents fail")
+  void shouldReturnEmpty_whenBothAgentsFail() {
+    when(documentAnalysisAgent.analyze(anyString(), anyString()))
+        .thenThrow(new RuntimeException("Analysis error"));
+    when(documentSummaryAgent.summarize(anyString(), anyString()))
+        .thenThrow(new RuntimeException("Summary error"));
 
     String result = service.generateSummary("fail.pdf", "content");
 
     assertThat(result).isEmpty();
+  }
+
+  @Test
+  @DisplayName("should return analysis result with summary and topics")
+  void shouldReturnAnalysisResult_whenAnalyzeDocument() {
+    List<String> topics = List.of("Topic A description", "Topic B description");
+    when(documentAnalysisAgent.analyze(anyString(), anyString()))
+        .thenReturn(new DocumentAnalysisResult("Rich summary.", topics));
+
+    DocumentAnalysisResult result = service.analyzeDocument("doc.pdf", "content");
+
+    assertThat(result.summary()).isEqualTo("Rich summary.");
+    assertThat(result.topics()).hasSize(2);
+    assertThat(result.topics()).containsExactly("Topic A description", "Topic B description");
+  }
+
+  @Test
+  @DisplayName("should handle null fields in analysis result")
+  void shouldHandleNullFields_whenAnalyzeDocumentReturnsNulls() {
+    when(documentAnalysisAgent.analyze(anyString(), anyString()))
+        .thenReturn(new DocumentAnalysisResult(null, null));
+
+    DocumentAnalysisResult result = service.analyzeDocument("doc.pdf", "content");
+
+    assertThat(result.summary()).isEmpty();
+    assertThat(result.topics()).isEmpty();
   }
 }

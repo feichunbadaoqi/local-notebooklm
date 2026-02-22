@@ -118,6 +118,13 @@ import { Document, DocumentStatus } from '../../../../core/models';
                     </button>
                     @if (expandedSummaries().has(doc.id)) {
                       <p class="text-xs text-text-secondary mt-1 leading-relaxed">{{ doc.summary }}</p>
+                      @if (doc.topics?.length) {
+                        <ul class="mt-2 space-y-1 list-disc list-inside">
+                          @for (topic of doc.topics; track topic) {
+                            <li class="text-xs text-text-secondary leading-relaxed">{{ topic }}</li>
+                          }
+                        </ul>
+                      }
                     }
                   }
                 </div>

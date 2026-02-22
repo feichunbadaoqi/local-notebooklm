@@ -29,6 +29,7 @@ import com.flamingo.ai.notebooklm.service.rag.query.QueryReformulationService;
 import com.flamingo.ai.notebooklm.service.rag.query.ReformulatedQuery;
 import com.flamingo.ai.notebooklm.service.rag.search.HybridSearchService;
 import com.flamingo.ai.notebooklm.service.rag.search.RetrievalConfidenceService;
+import com.flamingo.ai.notebooklm.service.rag.topic.TopicIndexService;
 import com.flamingo.ai.notebooklm.service.session.SessionService;
 import dev.langchain4j.service.TokenStream;
 import io.micrometer.core.instrument.Counter;
@@ -69,6 +70,7 @@ class ChatServiceImplTest {
   @Mock private RetrievalConfidenceService confidenceService;
   @Mock private ChatMessageIndexService chatMessageIndexService;
   @Mock private EmbeddingService embeddingService;
+  @Mock private TopicIndexService topicIndexService;
 
   private final ObjectMapper objectMapper = new ObjectMapper();
   private RagConfig ragConfig;
@@ -98,7 +100,8 @@ class ChatServiceImplTest {
             confidenceService,
             chatMessageIndexService,
             embeddingService,
-            objectMapper);
+            objectMapper,
+            topicIndexService);
 
     sessionId = UUID.randomUUID();
     session =
@@ -108,9 +111,12 @@ class ChatServiceImplTest {
             .currentMode(InteractionMode.EXPLORING)
             .build();
 
-    // Common mock setup - lenient for metrics that aren't used in all tests
+    // Common mock setup - lenient for metrics and services not used in all tests
     lenient().when(meterRegistry.counter(anyString())).thenReturn(counter);
     lenient().when(meterRegistry.timer(anyString())).thenReturn(timer);
+    lenient()
+        .when(topicIndexService.buildTopicIndex(any(UUID.class), any(InteractionMode.class)))
+        .thenReturn("");
   }
 
   @Nested
@@ -461,9 +467,7 @@ class ChatServiceImplTest {
     when(sessionService.getSession(sessionId)).thenReturn(session);
     when(chatMessageRepository.findBySessionIdOrderByCreatedAtDesc(sessionId))
         .thenReturn(List.of(msg3, msg2, msg1));
-
     List<ChatMessage> result = chatService.getChatHistory(sessionId, 2);
-
     assertThat(result).hasSize(2);
   }
 

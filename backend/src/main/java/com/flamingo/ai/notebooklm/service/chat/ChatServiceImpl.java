@@ -20,6 +20,7 @@ import com.flamingo.ai.notebooklm.service.rag.embedding.EmbeddingService;
 import com.flamingo.ai.notebooklm.service.rag.query.QueryReformulationService;
 import com.flamingo.ai.notebooklm.service.rag.query.ReformulatedQuery;
 import com.flamingo.ai.notebooklm.service.rag.search.HybridSearchService;
+import com.flamingo.ai.notebooklm.service.rag.topic.TopicIndexService;
 import com.flamingo.ai.notebooklm.service.session.SessionService;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.SystemMessage;
@@ -62,6 +63,7 @@ public class ChatServiceImpl implements ChatService {
   private final ChatMessageIndexService chatMessageIndexService;
   private final EmbeddingService embeddingService;
   private final ObjectMapper objectMapper;
+  private final TopicIndexService topicIndexService;
 
   @Override
   @Timed(value = "chat.stream", description = "Time to stream chat response")
@@ -270,8 +272,8 @@ public class ChatServiceImpl implements ChatService {
 
     List<dev.langchain4j.data.message.ChatMessage> messages = new ArrayList<>();
 
-    // System prompt based on mode
-    String systemPrompt = buildSystemPrompt(mode, ragContext) + systemPromptSuffix;
+    // System prompt based on mode (includes topic index for grounded suggestions)
+    String systemPrompt = buildSystemPrompt(session.getId(), mode, ragContext) + systemPromptSuffix;
     messages.add(SystemMessage.from(systemPrompt));
 
     // Add relevant memories
@@ -309,7 +311,7 @@ public class ChatServiceImpl implements ChatService {
     return messages;
   }
 
-  private String buildSystemPrompt(InteractionMode mode, String ragContext) {
+  private String buildSystemPrompt(UUID sessionId, InteractionMode mode, String ragContext) {
     StringBuilder prompt = new StringBuilder();
 
     prompt.append(
@@ -321,7 +323,7 @@ public class ChatServiceImpl implements ChatService {
       case EXPLORING ->
           prompt.append(
               "Current mode: EXPLORING - Encourage broad discovery. Suggest related topics and "
-                  + "connections. Help the user discover new insights.");
+                  + "connections from the user's documents. Help the user discover new insights.");
       case RESEARCH ->
           prompt.append(
               "Current mode: RESEARCH - Focus on precision and citations. When referencing "
@@ -331,6 +333,12 @@ public class ChatServiceImpl implements ChatService {
               "Current mode: LEARNING - Use the Socratic method. Ask clarifying questions. "
                   + "Build understanding progressively. Explain concepts step by step.");
       default -> prompt.append("Provide helpful, accurate responses.");
+    }
+
+    // Inject topic index for grounded follow-up suggestions
+    String topicIndex = topicIndexService.buildTopicIndex(sessionId, mode);
+    if (!topicIndex.isEmpty()) {
+      prompt.append("\n\n").append(topicIndex);
     }
 
     // Instructions for handling image references

@@ -9,6 +9,7 @@ import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.flamingo.ai.notebooklm.agent.dto.DocumentAnalysisResult;
 import com.flamingo.ai.notebooklm.domain.entity.Document;
 import com.flamingo.ai.notebooklm.domain.entity.Session;
 import com.flamingo.ai.notebooklm.domain.enums.DocumentStatus;
@@ -71,7 +72,9 @@ class DocumentProcessingServiceTest {
             contextualChunkingService,
             meterRegistry);
 
-    lenient().when(documentSummaryService.generateSummary(anyString(), anyString())).thenReturn("");
+    lenient()
+        .when(documentSummaryService.analyzeDocument(anyString(), anyString()))
+        .thenReturn(new DocumentAnalysisResult("", List.of()));
   }
 
   @Test

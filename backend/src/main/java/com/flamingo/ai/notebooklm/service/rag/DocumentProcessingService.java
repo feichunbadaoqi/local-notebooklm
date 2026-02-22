@@ -1,5 +1,6 @@
 package com.flamingo.ai.notebooklm.service.rag;
 
+import com.flamingo.ai.notebooklm.agent.dto.DocumentAnalysisResult;
 import com.flamingo.ai.notebooklm.domain.entity.Document;
 import com.flamingo.ai.notebooklm.domain.enums.DocumentStatus;
 import com.flamingo.ai.notebooklm.domain.repository.DocumentRepository;
@@ -108,11 +109,17 @@ public class DocumentProcessingService {
       String documentTitle = extractDocumentTitle(rawChunks, document.getFileName());
       log.debug("Extracted document title: {}", documentTitle);
 
-      // --- 3.5. Generate document summary ---
-      String summary = documentSummaryService.generateSummary(document.getFileName(), fullText);
+      // --- 3.5. Analyze document (summary + topics) ---
+      DocumentAnalysisResult analysis =
+          documentSummaryService.analyzeDocument(document.getFileName(), fullText);
+      String summary = analysis.summary();
       if (summary != null && !summary.isEmpty()) {
         log.info("Generated summary for document {} ({} chars)", documentId, summary.length());
         updateDocumentSummaryWithRetry(documentId, summary);
+      }
+      if (analysis.topics() != null && !analysis.topics().isEmpty()) {
+        log.info("Extracted {} topics for document {}", analysis.topics().size(), documentId);
+        updateDocumentTopicsWithRetry(documentId, analysis.topics());
       }
 
       // --- 4. Build DocumentChunk objects ---
@@ -343,6 +350,40 @@ public class DocumentProcessingService {
         }
         log.warn(
             "SQLite lock contention saving summary for {}, retry {}/{}",
+            documentId,
+            attempt,
+            MAX_RETRIES);
+        try {
+          Thread.sleep(RETRY_DELAY_MS * attempt);
+        } catch (InterruptedException ie) {
+          Thread.currentThread().interrupt();
+          throw new RuntimeException("Interrupted during retry", ie);
+        }
+      }
+    }
+  }
+
+  /** Saves the document topics with retry logic for SQLite lock contention. */
+  @Transactional(propagation = Propagation.REQUIRES_NEW)
+  public void updateDocumentTopicsWithRetry(UUID documentId, List<String> topics) {
+    for (int attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        Document document =
+            documentRepository
+                .findById(documentId)
+                .orElseThrow(
+                    () -> new DocumentProcessingException(documentId, "Document not found"));
+        document.setTopics(topics);
+        documentRepository.saveAndFlush(document);
+        return;
+      } catch (CannotAcquireLockException e) {
+        if (attempt == MAX_RETRIES) {
+          log.error(
+              "Failed to save topics for document {} after {} retries", documentId, MAX_RETRIES);
+          throw e;
+        }
+        log.warn(
+            "SQLite lock contention saving topics for {}, retry {}/{}",
             documentId,
             attempt,
             MAX_RETRIES);

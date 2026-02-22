@@ -1,7 +1,9 @@
 package com.flamingo.ai.notebooklm.domain.entity;
 
+import com.flamingo.ai.notebooklm.domain.converter.StringListConverter;
 import com.flamingo.ai.notebooklm.domain.enums.DocumentStatus;
 import jakarta.persistence.Column;
+import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
@@ -14,6 +16,7 @@ import jakarta.persistence.ManyToOne;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.UUID;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -58,6 +61,11 @@ public class Document {
   /** LLM-generated summary of the document content. */
   @Column(columnDefinition = "TEXT")
   private String summary;
+
+  /** LLM-extracted key topics and concepts covered in the document. */
+  @Column(columnDefinition = "TEXT")
+  @Convert(converter = StringListConverter.class)
+  private List<String> topics;
 
   /** Error message if processing failed. */
   @Column(columnDefinition = "TEXT")

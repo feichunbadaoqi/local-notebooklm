@@ -4,6 +4,7 @@ import com.flamingo.ai.notebooklm.agent.ChatCompactionAgent;
 import com.flamingo.ai.notebooklm.agent.ChatStreamingAgent;
 import com.flamingo.ai.notebooklm.agent.ContextualChunkingAgent;
 import com.flamingo.ai.notebooklm.agent.CrossEncoderRerankerAgent;
+import com.flamingo.ai.notebooklm.agent.DocumentAnalysisAgent;
 import com.flamingo.ai.notebooklm.agent.DocumentSummaryAgent;
 import com.flamingo.ai.notebooklm.agent.MemoryExtractionAgent;
 import com.flamingo.ai.notebooklm.agent.QueryReformulationAgent;
@@ -88,5 +89,14 @@ public class AiAgentConfig {
   public ContextualChunkingAgent contextualChunkingAgent(
       @Qualifier("textChatModel") ChatModel textChatModel) {
     return AiServices.builder(ContextualChunkingAgent.class).chatModel(textChatModel).build();
+  }
+
+  /**
+   * Document analysis agent for combined summary + topic extraction. Uses chatModel (JSON response
+   * format) for structured output.
+   */
+  @Bean
+  public DocumentAnalysisAgent documentAnalysisAgent(ChatModel chatModel) {
+    return AiServices.builder(DocumentAnalysisAgent.class).chatModel(chatModel).build();
   }
 }
