@@ -17,7 +17,7 @@ Comprehensive integration test scripts for testing all backend API endpoints.
 
 3. **OpenAI API key** configured in environment
    ```bash
-   export OPENAI_API_KEY=your-key-here
+   export OPENAI_API_KEY="your-openai-api-key"
    ```
 
 ## Test Scripts

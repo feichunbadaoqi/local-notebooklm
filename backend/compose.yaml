@@ -7,7 +7,6 @@ services:
     image: 'notebooklm-elasticsearch:9.1.4'
     container_name: notebooklm-elasticsearch
     environment:
-      - 'ELASTIC_PASSWORD=secret'
       - 'discovery.type=single-node'
       - 'xpack.security.enabled=false'
       # Increase memory for better performance with large documents

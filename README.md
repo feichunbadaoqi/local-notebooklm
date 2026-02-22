@@ -80,12 +80,12 @@ A localhost AI-powered knowledge assistant inspired by Google NotebookLM. Upload
 ### 1. Set your OpenAI API key
 
 ```bash
-export OPENAI_API_KEY=sk-your-key-here
+export OPENAI_API_KEY="your-openai-api-key"
 ```
 
 On Windows (PowerShell):
 ```powershell
-$env:OPENAI_API_KEY = "sk-your-key-here"
+$env:OPENAI_API_KEY = "your-openai-api-key"
 ```
 
 ### 2. Start Docker services
@@ -250,10 +250,7 @@ notebooklm/
 │   └── package.json            # npm dependencies
 │
 ├── docs/                       # Design documents
-│   ├── IMPLEMENTATION_PLAN.md  # Full architecture & phases
-│   ├── CHINESE_SUPPORT.md      # CJK language setup
-│   ├── RAG_OPTIMIZATION_DESIGN.md
-│   └── ...
+│   └── DESIGN.md               # Consolidated architecture & design
 │
 ├── CLAUDE.md                   # Root project instructions for Claude Code
 └── README.md                   # This file
